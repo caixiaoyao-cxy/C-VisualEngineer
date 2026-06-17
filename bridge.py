@@ -116,24 +116,62 @@ def extract_contour_from_map(map_path: str, output_mask: str) -> dict[str, Any]:
 
     return {"width": w, "height": h, "mask_path": output_mask, "contour_count": len(contours)}
 
-def search_culture(place_name: str) -> list[dict]:
+def _ddgs_search(queries: list[str], max_results: int = 5) -> list[dict]:
     try:
         from duckduckgo_search import DDGS
-        results = []
-        with DDGS() as ddgs:
-            for r in ddgs.text(f"{place_name} 文化 历史 地标 美食 非遗", max_results=10):
-                title = r.get("title", "")
-                snippet = r.get("body", "")
-                if title:
-                    results.append({"title": title, "snippet": snippet})
-        log(f"搜索到 {len(results)} 条文化结果")
-        return results
+        for query in queries:
+            try:
+                results = []
+                with DDGS(timeout=20) as ddgs:
+                    for r in ddgs.text(query, max_results=max_results):
+                        title = r.get("title", "")
+                        snippet = r.get("body", "")
+                        if title:
+                            results.append({"title": title, "snippet": snippet})
+                if results:
+                    return results
+            except Exception:
+                continue
     except ImportError:
-        log("缺少 duckduckgo_search，跳过搜索")
+        pass
+    return []
+
+def _wikipedia_search(query: str, max_results: int = 5) -> list[dict]:
+    try:
+        import httpx
+        params = {
+            "action": "query", "list": "search",
+            "srsearch": query, "format": "json",
+            "srlimit": max_results, "utf8": 1,
+        }
+        resp = httpx.get(
+            "https://en.wikipedia.org/w/api.php",
+            params=params,
+            headers={"User-Agent": "C-VisualEngineer/1.0"},
+            timeout=15,
+        )
+        data = resp.json()
+        results = []
+        for item in data.get("query", {}).get("search", []):
+            results.append({
+                "title": item.get("title", ""),
+                "snippet": item.get("snippet", "").replace("<span class=\"searchmatch\">", "").replace("</span>", ""),
+            })
+        return results
+    except Exception:
         return []
-    except Exception as e:
-        log(f"搜索失败: {e}")
-        return []
+
+def search_culture(place_name: str) -> list[dict]:
+    results = _ddgs_search([
+        f"{place_name} 文化 历史 地标",
+        f"{place_name} tourism landmark cuisine",
+    ])
+    if not results:
+        results = _wikipedia_search(f"{place_name} culture history landmark")
+    if not results:
+        results = _wikipedia_search(f"{place_name}")
+    log(f"搜索到 {len(results)} 条文化结果")
+    return results
 
 def wiki_to_culture_items(place_name: str, wiki_results: list[dict]) -> list[dict]:
     items = []
