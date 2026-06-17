@@ -9,20 +9,19 @@ import sys
 from pathlib import Path
 
 import numpy as np
+
+MOVIEPY_V2 = True
 try:
-    from moviepy import (
-        ImageSequenceClip,
-        CompositeVideoClip,
-        concatenate_videoclips,
-        TextClip,
-        vfx,
-    )
+    from moviepy import ImageSequenceClip, CompositeVideoClip, concatenate_videoclips, TextClip
+    from moviepy.video.fx import FadeIn, FadeOut
 except ImportError:
+    MOVIEPY_V2 = False
     from moviepy.video.io.ImageSequenceClip import ImageSequenceClip
     from moviepy.video.compositing.CompositeVideoClip import CompositeVideoClip
     from moviepy.video.compositing.concatenate import concatenate_videoclips
     from moviepy.video.VideoClip import TextClip
-    import moviepy.video.fx as vfx
+    import moviepy.video.fx.all as vfx
+    from moviepy.video.fx import fadein, fadeout
 
 from config import *
 
@@ -87,11 +86,20 @@ def main(args: list[str] | None = None):
 
     processed = []
     for i, clip in enumerate(clips):
-        c = clip
+        effects = []
         if i > 0:
-            c = vfx.fadein(c, TRANSITION_DURATION)
+            effects.append(FadeIn(TRANSITION_DURATION) if MOVIEPY_V2 else None)
         if i < len(clips) - 1:
-            c = vfx.fadeout(c, TRANSITION_DURATION)
+            effects.append(FadeOut(TRANSITION_DURATION) if MOVIEPY_V2 else None)
+        if MOVIEPY_V2:
+            effects = [e for e in effects if e is not None]
+            c = clip.with_effects(effects) if effects else clip
+        else:
+            c = clip
+            if i > 0:
+                c = vfx.fadein(c, TRANSITION_DURATION)
+            if i < len(clips) - 1:
+                c = vfx.fadeout(c, TRANSITION_DURATION)
         processed.append(c)
 
     video = concatenate_videoclips(processed, method="compose")
