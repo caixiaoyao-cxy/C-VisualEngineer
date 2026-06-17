@@ -116,57 +116,24 @@ def extract_contour_from_map(map_path: str, output_mask: str) -> dict[str, Any]:
 
     return {"width": w, "height": h, "mask_path": output_mask, "contour_count": len(contours)}
 
-def search_web_culture(place_name: str) -> list[dict]:
+def search_culture(place_name: str) -> list[dict]:
     try:
-        import httpx
-        from parsel import Selector
-
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-        query = f"{place_name} 文化 地标 美食 非遗 历史"
-        url = f"https://html.duckduckgo.com/html/?q={__import__('urllib').parse.quote(query)}"
-        resp = httpx.get(url, headers=headers, timeout=15, follow_redirects=True)
-        sel = Selector(resp.text)
+        from duckduckgo_search import DDGS
         results = []
-        for item in sel.css(".result")[:10]:
-            title = item.css(".result__title ::text").get("").strip()
-            snippet = item.css(".result__snippet ::text").get("").strip()
-            if title:
-                results.append({"title": title, "snippet": snippet})
-        log(f"DuckDuckGo 找到 {len(results)} 条文化结果")
+        with DDGS() as ddgs:
+            for r in ddgs.text(f"{place_name} 文化 历史 地标 美食 非遗", max_results=10):
+                title = r.get("title", "")
+                snippet = r.get("body", "")
+                if title:
+                    results.append({"title": title, "snippet": snippet})
+        log(f"搜索到 {len(results)} 条文化结果")
         return results
     except ImportError:
-        log("缺少 parsel，跳过网页搜索")
+        log("缺少 duckduckgo_search，跳过搜索")
         return []
     except Exception as e:
-        log(f"网页搜索失败: {e}")
+        log(f"搜索失败: {e}")
         return []
-
-def search_wikipedia_culture(place_name: str) -> list[dict]:
-    try:
-        import httpx
-
-        url = "https://en.wikipedia.org/w/api.php"
-        params = {
-            "action": "query", "list": "search",
-            "srsearch": f"{place_name} culture history landmark",
-            "format": "json", "srlimit": 10, "utf8": 1,
-        }
-        resp = httpx.get(url, params=params, headers={"User-Agent": "C-VisualEngineer/1.0"}, timeout=15)
-        data = resp.json()
-        results = []
-        for item in data.get("query", {}).get("search", []):
-            results.append({"title": item.get("title", ""), "snippet": item.get("snippet", "").replace("<span class=\"searchmatch\">", "").replace("</span>", "")})
-        log(f"Wikipedia 找到 {len(results)} 条结果")
-        return results
-    except Exception as e:
-        log(f"Wikipedia 搜索失败: {e}")
-        return []
-
-def search_culture(place_name: str) -> list[dict]:
-    results = search_web_culture(place_name)
-    if not results:
-        results = search_wikipedia_culture(place_name)
-    return results
 
 def wiki_to_culture_items(place_name: str, wiki_results: list[dict]) -> list[dict]:
     items = []
