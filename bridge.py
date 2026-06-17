@@ -37,44 +37,53 @@ def load_env():
             os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
 
 
-def search_map_image(place: str) -> str | None:
-    """多引擎搜地图图片"""
-    engines = [
-        ("Bing", f"https://www.bing.com/images/search?q={urllib.parse.quote(place + ' 地图')}&FORM=HDRSC2"),
-        ("DuckDuckGo", f"https://lite.duckduckgo.com/lite/?q={urllib.parse.quote(place + ' 地图')}"),
-    ]
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-
-    for name, url in engines:
-        try:
-            req = urllib.request.Request(url, headers=headers)
-            resp = urllib.request.urlopen(req, timeout=15)
-            html = resp.read().decode("utf-8", errors="ignore")
-            # 多种匹配模式
-            patterns = [
-                r'src="([^"]+\.(?:jpg|jpeg|png|webp))"',
-                r'img[^>]+src="([^"]+)"',
-                r'data-src="([^"]+)"',
-            ]
-            for pat in patterns:
-                matches = re.findall(pat, html, re.IGNORECASE)
-                for m in matches:
-                    m = m.strip()
-                    if m.startswith("http") and not m.endswith((".svg", ".gif")):
-                        return m
-        except:
-            continue
-    return None
-
-
-def download_image(url: str, path: str) -> bool:
+def get_map_for_place(place: str, save_path: str) -> bool:
+    """用 OpenStreetMap 免费 API：地名 → 坐标 → 地图截图"""
+    headers = {"User-Agent": "C-VisualEngineer/1.0"}
     try:
-        headers = {"User-Agent": "Mozilla/5.0"}
+        # 1. 地理编码：地名 → 坐标 + 边界
+        url = f"https://nominatim.openstreetmap.org/search?q={urllib.parse.quote(place)}&format=json&limit=1&polygon_geojson=1"
         req = urllib.request.Request(url, headers=headers)
-        conn = urllib.request.urlopen(req, timeout=30)
-        with open(path, "wb") as f:
-            f.write(conn.read())
+        resp = urllib.request.urlopen(req, timeout=15)
+        data = json.loads(resp.read().decode("utf-8"))
+        if not data:
+            return False
+        entry = data[0]
+        bbox = entry.get("boundingbox", [])
+        if len(bbox) < 4:
+            return False
+        lat_min, lat_max, lon_min, lon_max = float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])
+        center_lat = (lat_min + lat_max) / 2
+        center_lon = (lon_min + lon_max) / 2
+        display = entry.get("display_name", place)
+
+        # 2. 用 OSM 静态地图渲染
+        # 放大边界 20% 让地图完整
+        pad_lat = (lat_max - lat_min) * 0.2
+        pad_lon = (lon_max - lon_min) * 0.2
+        bbox_str = f"{lon_min-pad_lon},{lat_min-pad_lat},{lon_max+pad_lon},{lat_max+pad_lat}"
+        map_url = f"https://render.openstreetmap.org/cgi-bin/export?bbox={bbox_str}&scale=50000&format=png"
+        # 也试试小比例尺
+        if not _download_image(map_url, save_path):
+            map_url = f"https://render.openstreetmap.org/cgi-bin/export?bbox={bbox_str}&scale=100000&format=png"
+            if not _download_image(map_url, save_path):
+                return False
+
+        print(f"  📍 {display[:60]}")
         return True
+    except Exception as e:
+        print(f"  ⚠️ {e}")
+        return False
+
+
+def _download_image(url: str, path: str) -> bool:
+    try:
+        h = {"User-Agent": "C-VisualEngineer/1.0"}
+        req = urllib.request.Request(url, headers=h)
+        with urllib.request.urlopen(req, timeout=30) as r:
+            with open(path, "wb") as f:
+                f.write(r.read())
+        return Path(path).stat().st_size > 1000
     except:
         return False
 
@@ -198,24 +207,22 @@ def main():
     if not place:
         print("❌ 地名不能为空"); sys.exit(1)
 
-    print(f"🔍 搜索「{place}」地图...", end=" ", flush=True)
-    map_url = search_map_image(place)
-    if map_url:
+    print(f"🔍 生成「{place}」地图...", end=" ", flush=True)
+    tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False, dir=str(OUTPUT_DIR))
+    if get_map_for_place(place, tmp.name):
         print("✅")
-        tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False, dir=str(OUTPUT_DIR))
-        if download_image(map_url, tmp.name):
-            print("⚡ 全自动生成中...")
-            run_full_pipeline(tmp.name)
-            return
+        print("⚡ 全自动生成中...")
+        run_full_pipeline(tmp.name)
+        return
 
-    # 搜不到 → 本机已有测试图则自动用
+    # OSM 失败 → 本机已有测试图则自动用
     test_map = Path("input/contours/hangzhou_map.png")
     if test_map.exists():
-        print(f"⚠️ 未搜到，使用本地测试图")
+        print(f"⚠️ 改用本地测试图")
         run_full_pipeline(str(test_map.resolve()))
         return
 
-    print(f"❌ 未找到「{place}」地图")
+    print(f"❌ 无法获取「{place}」地图")
     image = input("📂 拖入地图图片: ").strip().strip('"').strip("'")
     if not Path(image).exists():
         print(f"❌ 文件不存在"); sys.exit(1)
