@@ -100,15 +100,81 @@ def extract_contour_from_map(map_path: str, output_mask: str) -> dict[str, Any]:
 
     return {"width": w, "height": h, "mask_path": output_mask, "contour_count": len(contours)}
 
-def generate_storyboard_scenes(place_name: str, contour_map_path: str, num_scenes: int = 5) -> list[dict]:
+def search_wikipedia_culture(place_name: str) -> list[dict]:
+    try:
+        import httpx
+        import urllib.parse
+
+        query = urllib.parse.quote(f"{place_name} 文化 历史 地标 美食 非遗")
+        url = f"https://zh.wikipedia.org/w/api.php?action=query&list=search&srsearch={query}&format=json&srlimit=10&utf8=1"
+        resp = httpx.get(url, headers={"User-Agent": "C-VisualEngineer/1.0"}, timeout=15)
+        data = resp.json()
+        results = []
+        for item in data.get("query", {}).get("search", []):
+            title = item.get("title", "")
+            snippet = item.get("snippet", "").replace("<span class=\"searchmatch\">", "").replace("</span>", "")
+            results.append({"title": title, "snippet": snippet})
+        log(f"Wikipedia 找到 {len(results)} 条文化相关结果")
+        return results
+    except Exception as e:
+        log(f"Wikipedia 搜索失败: {e}")
+        return []
+
+def wiki_to_culture_items(place_name: str, wiki_results: list[dict]) -> list[dict]:
+    items = []
+    category_keywords = {
+        "建筑地标": ["塔", "桥", "寺", "庙", "楼", "阁", "园", "故居", "遗址", "古镇", "城墙", "宫殿", "祠"],
+        "饮食": ["美食", "小吃", "菜", "酒", "茶", "宴", "糕", "饼", "食"],
+        "非遗": ["非遗", "传承", "戏曲", "工艺", "刺绣", "陶瓷", "剪纸", "雕刻", "民歌", "舞蹈"],
+        "历史人物": ["故居", "墓", "纪念馆", "人物", "名人", "将军", "诗人", "文学家"],
+        "民俗节庆": ["节", "庙会", "灯会", "龙舟", "民俗", "祭祀", "庆典"],
+        "自然景观": ["山", "湖", "河", "江", "海", "峰", "瀑布", "森林", "公园", "湿地"],
+    }
+    for r in wiki_results:
+        title = r["title"]
+        snippet = r["snippet"]
+        category = "产业符号"
+        for cat, keywords in category_keywords.items():
+            if any(k in title or k in snippet for k in keywords):
+                category = cat
+                break
+        visual_keywords = {
+            "建筑地标": ["地标建筑", "屋顶", "石阶", "门楼"],
+            "饮食": ["食材", "餐桌", "热气", "摊位"],
+            "非遗": ["手工艺", "纹样", "传统器物"],
+            "历史人物": ["人物剪影", "故事场景", "古迹"],
+            "民俗节庆": ["灯彩", "人群", "仪式"],
+            "自然景观": ["山水", "植物", "天空"],
+            "产业符号": ["符号", "图标", "标识"],
+        }.get(category, ["文化元素"])
+        items.append({
+            "place_name": place_name,
+            "element_name": title,
+            "category": category,
+            "summary": snippet[:200],
+            "visual_keywords": visual_keywords,
+            "usage_suggestions": [f"{title}作为地标展示"],
+            "confidence": 0.6,
+            "sources": [],
+        })
+    return items
+
+def generate_storyboard_scenes(place_name: str, contour_map_path: str, culture_items: list[dict] | None = None, num_scenes: int = 5) -> list[dict]:
+    if culture_items:
+        items = culture_items[:num_scenes]
+        while len(items) < num_scenes:
+            items.append(FALLBACK_CULTURE_ITEMS[len(items) % len(FALLBACK_CULTURE_ITEMS)])
+    else:
+        items = [FALLBACK_CULTURE_ITEMS[i % len(FALLBACK_CULTURE_ITEMS)] for i in range(num_scenes)]
+
     scenes = []
     for i in range(num_scenes):
-        item = FALLBACK_CULTURE_ITEMS[i % len(FALLBACK_CULTURE_ITEMS)]
+        item = items[i]
         template = FALLBACK_STORYBOARD_TEMPLATE[i % len(FALLBACK_STORYBOARD_TEMPLATE)]
         keywords = "、".join(item["visual_keywords"][:3])
 
         if i == 0:
-            desc = f"{place_name}地图缓缓展开，{item['element_name']}在轮廓内作为第一个文化点位亮起"
+            desc = f"{place_name}地图缓缓展开，{item['element_name']}在轮廓内作为第一个文化点位亮起，{keywords}"
             action = "主角从地图边缘走入，沿着轮廓线走两步后停下，抬头看向发光的文化点位"
             narration = f"沿着地图轮廓出发，我们走进{place_name}的地方文化故事。"
         elif i == num_scenes - 1:
@@ -177,10 +243,19 @@ def run_pipeline_interactive():
         log("OSM 地图获取成功，继续处理")
 
     log("提取地图轮廓掩码...")
-    contour_info = extract_contour_from_map(map_path, mask_path)
+    extract_contour_from_map(map_path, mask_path)
+
+    culture_items = None
+    log("搜索当地文化元素（Wikipedia）...")
+    wiki = search_wikipedia_culture(place_name)
+    if wiki:
+        culture_items = wiki_to_culture_items(place_name, wiki)
+        log(f"找到 {len(culture_items)} 个文化元素")
+        for c in culture_items[:5]:
+            log(f"  - [{c['category']}] {c['element_name']}")
 
     log("生成分镜脚本...")
-    scenes = generate_storyboard_scenes(place_name, mask_path)
+    scenes = generate_storyboard_scenes(place_name, mask_path, culture_items)
 
     sb_path = ROOT / "storyboard_generated.json"
     with open(sb_path, "w", encoding="utf-8") as f:
@@ -198,8 +273,7 @@ def run_pipeline_interactive():
     try:
         anim_main([str(sb_path)])
     except Exception as e:
-        log(f"动画生成跳过 (显存不足或模型未下载): {e}")
-        log("使用场景图作为幻灯片替代")
+        log(f"动画生成跳过: {e}")
 
     log("\n" + "=" * 60)
     log("步骤 3/3: 合成视频...")
@@ -270,8 +344,15 @@ def run_pipeline_cli(place_name: str, map_path_arg: str | None = None):
     log("提取轮廓...")
     extract_contour_from_map(map_path, mask_path)
 
+    culture_items = None
+    log("Wikipedia 搜索文化元素...")
+    wiki = search_wikipedia_culture(place_name)
+    if wiki:
+        culture_items = wiki_to_culture_items(place_name, wiki)
+        log(f"找到 {len(culture_items)} 个元素")
+
     log("生成分镜...")
-    scenes = generate_storyboard_scenes(place_name, mask_path)
+    scenes = generate_storyboard_scenes(place_name, mask_path, culture_items)
     sb_path = ROOT / "storyboard_generated.json"
     with open(sb_path, "w", encoding="utf-8") as f:
         json.dump(scenes, f, ensure_ascii=False, indent=2)
