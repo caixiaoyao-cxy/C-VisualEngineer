@@ -28,11 +28,9 @@ def extract_contour(mask_path: str) -> Image.Image:
     return Image.fromarray(colored)
 
 def build_prompt(scene: dict) -> str:
-    """组合 Prompt — 只有人和物件，无背景，靠元素密度填出形状"""
-    desc = scene.get("description", "")
+    desc = scene.get("description", "")[:60]
     style = scene.get("style", "anime style")
-    no_bg = "white background, no background, empty background, only characters and objects, no landscape, no sky, no ground, no buildings, minimalist"
-    return f"{STYLE_PREFIX}{style}, {desc}, {no_bg}{STYLE_SUFFIX}"
+    return f"{STYLE_PREFIX}{style}, {desc}, minimalist, flat illustration{STYLE_SUFFIX}"
 
 def load_pipeline():
     print(f"[加载模型] 基础: {SCENE_BASE_MODEL}")

@@ -55,14 +55,15 @@ FINAL_FPS = 24
 # ============================================================
 # Prompt 模板
 # ============================================================
-STYLE_PREFIX = "masterpiece, best quality, anime style, hand-drawn style, fairy tale style, vibrant colors, detailed background, "
-STYLE_SUFFIX = ", cinematic lighting, depth of field, high resolution"
+STYLE_PREFIX = "best quality, anime style, hand-drawn, fairy tale, vibrant, "
+STYLE_SUFFIX = ", cinematic lighting, high resolution"
 
 NEGATIVE_PROMPT = (
     "lowres, bad anatomy, bad hands, text, error, missing fingers, "
     "extra digit, fewer digits, cropped, worst quality, low quality, "
     "normal quality, jpeg artifacts, signature, watermark, username, blurry, "
-    "landscape, sky, ground, grass, trees, building exterior, scenery, background detail"
+    "landscape, sky, ground, grass, trees, building exterior, scenery, background, "
+    "realistic, photographic, 3d render"
 )
 
 # ============================================================
