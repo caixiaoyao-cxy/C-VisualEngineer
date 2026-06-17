@@ -1,13 +1,17 @@
 import argparse
+import io
 import json
+import math
 import shutil
 import sys
 import time
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
 import cv2
 import numpy as np
+from PIL import Image
 
 from config import *
 
@@ -35,40 +39,52 @@ def log(msg: str):
 def fetch_osm_map(place_name: str, output_path: str) -> bool:
     try:
         import httpx
-        import urllib.parse
 
-        query = urllib.parse.quote(f"{place_name} 行政区划图")
-        url = f"https://nominatim.openstreetmap.org/search?q={query}&format=json&limit=1"
         headers = {"User-Agent": "C-VisualEngineer/1.0"}
-        resp = httpx.get(url, headers=headers, timeout=15)
+        query = f"{place_name} 行政区划图"
+        url = f"https://nominatim.openstreetmap.org/search?q={urllib.parse.quote(query)}&format=json&limit=1"
+        resp = httpx.get(url, headers=headers, timeout=10)
         data = resp.json()
         if not data:
             log(f"OSM 未找到: {place_name}")
             return False
 
         lat, lon = float(data[0]["lat"]), float(data[0]["lon"])
-        bbox = data[0].get("boundingbox")
-        if bbox:
-            min_lat, max_lat, min_lon, max_lon = float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])
-        else:
-            min_lat, max_lat, min_lon, max_lon = lat - 0.05, lat + 0.05, lon - 0.05, lon + 0.05
+        zoom = 12
+        size = 1024
+        tile_size = 256
+        n_tiles = math.ceil(size / tile_size)
 
-        map_url = (
-            f"https://www.openstreetmap.org/export/embed.html?"
-            f"bbox={min_lon},{min_lat},{max_lon},{max_lat}&layer=mapnik"
-        )
-        static_url = (
-            f"https://staticmap.openstreetmap.de/staticmap.php?"
-            f"center={lat},{lon}&zoom=12&size=1024x768&maptype=mapnik"
-        )
+        n = 2.0 ** zoom
+        cx = int((lon + 180.0) / 360.0 * n)
+        cy = int((1.0 - math.log(math.tan(math.radians(lat)) + 1.0 / math.cos(math.radians(lat))) / math.pi) / 2.0 * n)
 
-        img_resp = httpx.get(static_url, headers=headers, timeout=30)
-        if img_resp.status_code != 200:
-            log(f"OSM 静态地图下载失败 (status={img_resp.status_code})")
+        img = Image.new("RGB", (size, size), (255, 255, 255))
+        tile_servers = ["a.tile.openstreetmap.org", "b.tile.openstreetmap.org", "c.tile.openstreetmap.org"]
+        loaded = 0
+        for dx in range(-n_tiles // 2, n_tiles // 2 + 1):
+            for dy in range(-n_tiles // 2, n_tiles // 2 + 1):
+                tx, ty = cx + dx, cy + dy
+                for ts in tile_servers:
+                    try:
+                        tile_url = f"https://{ts}/{zoom}/{tx}/{ty}.png"
+                        tile_resp = httpx.get(tile_url, headers=headers, timeout=10)
+                        if tile_resp.status_code == 200:
+                            tile = Image.open(io.BytesIO(tile_resp.content))
+                            px = (dx + n_tiles // 2) * tile_size
+                            py = (dy + n_tiles // 2) * tile_size
+                            img.paste(tile, (px, py))
+                            loaded += 1
+                            break
+                    except Exception:
+                        continue
+
+        log(f"已加载 {loaded} 个地图瓦片")
+        if loaded == 0:
             return False
 
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        Path(output_path).write_bytes(img_resp.content)
+        img.save(output_path)
         log(f"OSM 地图已保存: {output_path}")
         return True
     except Exception as e:
@@ -100,25 +116,57 @@ def extract_contour_from_map(map_path: str, output_mask: str) -> dict[str, Any]:
 
     return {"width": w, "height": h, "mask_path": output_mask, "contour_count": len(contours)}
 
+def search_web_culture(place_name: str) -> list[dict]:
+    try:
+        import httpx
+        from parsel import Selector
+
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        query = f"{place_name} 文化 地标 美食 非遗 历史"
+        url = f"https://html.duckduckgo.com/html/?q={__import__('urllib').parse.quote(query)}"
+        resp = httpx.get(url, headers=headers, timeout=15, follow_redirects=True)
+        sel = Selector(resp.text)
+        results = []
+        for item in sel.css(".result")[:10]:
+            title = item.css(".result__title ::text").get("").strip()
+            snippet = item.css(".result__snippet ::text").get("").strip()
+            if title:
+                results.append({"title": title, "snippet": snippet})
+        log(f"DuckDuckGo 找到 {len(results)} 条文化结果")
+        return results
+    except ImportError:
+        log("缺少 parsel，跳过网页搜索")
+        return []
+    except Exception as e:
+        log(f"网页搜索失败: {e}")
+        return []
+
 def search_wikipedia_culture(place_name: str) -> list[dict]:
     try:
         import httpx
-        import urllib.parse
 
-        query = urllib.parse.quote(f"{place_name} 文化 历史 地标 美食 非遗")
-        url = f"https://zh.wikipedia.org/w/api.php?action=query&list=search&srsearch={query}&format=json&srlimit=10&utf8=1"
-        resp = httpx.get(url, headers={"User-Agent": "C-VisualEngineer/1.0"}, timeout=15)
+        url = "https://en.wikipedia.org/w/api.php"
+        params = {
+            "action": "query", "list": "search",
+            "srsearch": f"{place_name} culture history landmark",
+            "format": "json", "srlimit": 10, "utf8": 1,
+        }
+        resp = httpx.get(url, params=params, headers={"User-Agent": "C-VisualEngineer/1.0"}, timeout=15)
         data = resp.json()
         results = []
         for item in data.get("query", {}).get("search", []):
-            title = item.get("title", "")
-            snippet = item.get("snippet", "").replace("<span class=\"searchmatch\">", "").replace("</span>", "")
-            results.append({"title": title, "snippet": snippet})
-        log(f"Wikipedia 找到 {len(results)} 条文化相关结果")
+            results.append({"title": item.get("title", ""), "snippet": item.get("snippet", "").replace("<span class=\"searchmatch\">", "").replace("</span>", "")})
+        log(f"Wikipedia 找到 {len(results)} 条结果")
         return results
     except Exception as e:
         log(f"Wikipedia 搜索失败: {e}")
         return []
+
+def search_culture(place_name: str) -> list[dict]:
+    results = search_web_culture(place_name)
+    if not results:
+        results = search_wikipedia_culture(place_name)
+    return results
 
 def wiki_to_culture_items(place_name: str, wiki_results: list[dict]) -> list[dict]:
     items = []
@@ -246,10 +294,10 @@ def run_pipeline_interactive():
     extract_contour_from_map(map_path, mask_path)
 
     culture_items = None
-    log("搜索当地文化元素（Wikipedia）...")
-    wiki = search_wikipedia_culture(place_name)
-    if wiki:
-        culture_items = wiki_to_culture_items(place_name, wiki)
+    log("搜索当地文化元素...")
+    raw = search_culture(place_name)
+    if raw:
+        culture_items = wiki_to_culture_items(place_name, raw)
         log(f"找到 {len(culture_items)} 个文化元素")
         for c in culture_items[:5]:
             log(f"  - [{c['category']}] {c['element_name']}")
@@ -345,10 +393,10 @@ def run_pipeline_cli(place_name: str, map_path_arg: str | None = None):
     extract_contour_from_map(map_path, mask_path)
 
     culture_items = None
-    log("Wikipedia 搜索文化元素...")
-    wiki = search_wikipedia_culture(place_name)
-    if wiki:
-        culture_items = wiki_to_culture_items(place_name, wiki)
+    log("搜索文化元素...")
+    raw = search_culture(place_name)
+    if raw:
+        culture_items = wiki_to_culture_items(place_name, raw)
         log(f"找到 {len(culture_items)} 个元素")
 
     log("生成分镜...")
