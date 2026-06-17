@@ -83,17 +83,17 @@ def generate_scenes(pipe, storyboard: list[dict]):
             control_image = Image.new("RGB", (SCENE_WIDTH, SCENE_HEIGHT), color="white")
             print(f"  无轮廓约束，生成纯白条件图")
 
-            # 加载地图 mask 用于裁切
-            mask_img = None
-            if contour_path and Path(contour_path).exists():
-                mask_img = cv2.imread(contour_path, cv2.IMREAD_GRAYSCALE)
-                _, mask_img = cv2.threshold(mask_img, 127, 255, cv2.THRESH_BINARY)
-            else:
-                mask_img = np.ones((SCENE_HEIGHT, SCENE_WIDTH), dtype=np.uint8) * 255
+        # 加载地图 mask 用于裁切（所有分支都执行）
+        mask_img = None
+        if contour_path and Path(contour_path).exists():
+            mask_img = cv2.imread(contour_path, cv2.IMREAD_GRAYSCALE)
+            _, mask_img = cv2.threshold(mask_img, 127, 255, cv2.THRESH_BINARY)
+        else:
+            mask_img = np.ones((SCENE_HEIGHT, SCENE_WIDTH), dtype=np.uint8) * 255
 
-            # 多张变体
-            variants = scene.get("variants", 1)
-            for v in range(variants):
+        # 多张变体
+        variants = scene.get("variants", 1)
+        for v in range(variants):
                 seed = scene.get("seed", 42) + v
                 generator = torch.Generator(device=DEVICE).manual_seed(seed)
 

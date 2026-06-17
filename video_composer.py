@@ -9,13 +9,20 @@ import sys
 from pathlib import Path
 
 import numpy as np
-from moviepy import (
-    ImageSequenceClip,
-    CompositeVideoClip,
-    concatenate_videoclips,
-    TextClip,
-    vfx,
-)
+try:
+    from moviepy import (
+        ImageSequenceClip,
+        CompositeVideoClip,
+        concatenate_videoclips,
+        TextClip,
+        vfx,
+    )
+except ImportError:
+    from moviepy.video.io.ImageSequenceClip import ImageSequenceClip
+    from moviepy.video.compositing.CompositeVideoClip import CompositeVideoClip
+    from moviepy.video.compositing.concatenate import concatenate_videoclips
+    from moviepy.video.VideoClip import TextClip
+    import moviepy.video.fx as vfx
 
 from config import *
 
