@@ -38,20 +38,32 @@ def load_env():
 
 
 def search_map_image(place: str) -> str | None:
-    print(f"🔍 搜索「{place}」地图...", end=" ", flush=True)
-    try:
-        query = urllib.parse.quote(f"{place} 地图 轮廓 高清")
-        url = f"https://www.bing.com/images/search?q={query}&qft=+filterui:aspect-wide&FORM=IRFLTR"
-        headers = {"User-Agent": "Mozilla/5.0"}
-        req = urllib.request.Request(url, headers=headers)
-        resp = urllib.request.urlopen(req, timeout=15)
-        html = resp.read().decode("utf-8", errors="ignore")
-        matches = re.findall(r'src="([^"]+\.(?:jpg|jpeg|png|webp))"', html)
-        for m in matches:
-            if m.startswith("http"):
-                return m
-    except:
-        pass
+    """多引擎搜地图图片"""
+    engines = [
+        ("Bing", f"https://www.bing.com/images/search?q={urllib.parse.quote(place + ' 地图')}&FORM=HDRSC2"),
+        ("DuckDuckGo", f"https://lite.duckduckgo.com/lite/?q={urllib.parse.quote(place + ' 地图')}"),
+    ]
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+
+    for name, url in engines:
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            resp = urllib.request.urlopen(req, timeout=15)
+            html = resp.read().decode("utf-8", errors="ignore")
+            # 多种匹配模式
+            patterns = [
+                r'src="([^"]+\.(?:jpg|jpeg|png|webp))"',
+                r'img[^>]+src="([^"]+)"',
+                r'data-src="([^"]+)"',
+            ]
+            for pat in patterns:
+                matches = re.findall(pat, html, re.IGNORECASE)
+                for m in matches:
+                    m = m.strip()
+                    if m.startswith("http") and not m.endswith((".svg", ".gif")):
+                        return m
+        except:
+            continue
     return None
 
 
@@ -59,9 +71,9 @@ def download_image(url: str, path: str) -> bool:
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
         req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            with open(path, "wb") as f:
-                f.write(resp.read())
+        conn = urllib.request.urlopen(req, timeout=30)
+        with open(path, "wb") as f:
+            f.write(conn.read())
         return True
     except:
         return False
@@ -167,15 +179,12 @@ def run_full_pipeline(map_image_path: str):
 
     import scene_generator
     scene_generator.main([str(c_sb_path)])
-
     print("🎬 动画...", end=" ", flush=True)
     import animation_generator
     animation_generator.main([str(c_sb_path)])
-
     print("🎬 合成视频...")
     import video_composer
     video_composer.main([str(c_sb_path)])
-
     print(f"\n🎉 完成！视频: {(VIDEO_DIR / 'final_video.mp4').resolve()}")
 
 
@@ -183,24 +192,29 @@ def main():
     print("\n" + "=" * 50)
     print("  🗺️  AI 地图宣传视频生成器")
     print("=" * 50)
-
     load_env()
 
-    place = input("\n📍 输入地名: ").strip()
+    place = input("\n📍 输入地名（如 杭州）: ").strip()
     if not place:
         print("❌ 地名不能为空"); sys.exit(1)
 
-    # 自动搜地图
+    print(f"🔍 搜索「{place}」地图...", end=" ", flush=True)
     map_url = search_map_image(place)
     if map_url:
-        print("✅ 已找到")
+        print("✅")
         tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False, dir=str(OUTPUT_DIR))
         if download_image(map_url, tmp.name):
             print("⚡ 全自动生成中...")
             run_full_pipeline(tmp.name)
             return
 
-    # 搜不到 → 人工介入
+    # 搜不到 → 本机已有测试图则自动用
+    test_map = Path("input/contours/hangzhou_map.png")
+    if test_map.exists():
+        print(f"⚠️ 未搜到，使用本地测试图")
+        run_full_pipeline(str(test_map.resolve()))
+        return
+
     print(f"❌ 未找到「{place}」地图")
     image = input("📂 拖入地图图片: ").strip().strip('"').strip("'")
     if not Path(image).exists():
