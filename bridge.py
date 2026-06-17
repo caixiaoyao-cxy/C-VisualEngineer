@@ -215,15 +215,11 @@ def main():
         run_full_pipeline(tmp.name)
         return
 
-    # OSM 失败 → 本机已有测试图则自动用
-    test_map = Path("input/contours/hangzhou_map.png")
-    if test_map.exists():
-        print(f"⚠️ 改用本地测试图")
-        run_full_pipeline(str(test_map.resolve()))
-        return
-
-    print(f"❌ 无法获取「{place}」地图")
-    image = input("📂 拖入地图图片: ").strip().strip('"').strip("'")
+    # OSM 失败 → 让用户上传
+    print(f"❌ 无法自动获取「{place}」地图")
+    image = input("📂 拖入地图图片（或输入路径）: ").strip().strip('"').strip("'")
+    if not image:
+        print("❌ 未提供地图"); sys.exit(1)
     if not Path(image).exists():
         print(f"❌ 文件不存在"); sys.exit(1)
     run_full_pipeline(image)
