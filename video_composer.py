@@ -38,7 +38,7 @@ def make_clip_from_frames(frame_dir: Path, duration: float, fps: int) -> ImageSe
     if clip.duration < duration:
         n_repeats = int(np.ceil(duration / clip.duration))
         clip = concatenate_videoclips([clip] * n_repeats)
-    return clip.subclipped(0, duration)
+    return clip.subclip(0, duration)
 
 def add_subtitle(video, text: str, duration: float, start: float = 0):
     txt = TextClip(
@@ -48,7 +48,7 @@ def add_subtitle(video, text: str, duration: float, start: float = 0):
         stroke_color="black",
         stroke_width=1,
         font="SimHei",
-    ).with_position(("center", "bottom")).with_start(start).with_duration(duration)
+    ).set_position(("center", "bottom")).set_start(start).set_duration(duration)
     return txt
 
 def main(args: list[str] | None = None):
@@ -85,14 +85,13 @@ def main(args: list[str] | None = None):
 
     print(f"共 {len(clips)} 个片段")
 
-    # 转场处理
     processed = []
     for i, clip in enumerate(clips):
         c = clip
         if i > 0:
-            c = c.with_effects([vfx.FadeIn(TRANSITION_DURATION)])
+            c = vfx.fadein(c, TRANSITION_DURATION)
         if i < len(clips) - 1:
-            c = c.with_effects([vfx.FadeOut(TRANSITION_DURATION)])
+            c = vfx.fadeout(c, TRANSITION_DURATION)
         processed.append(c)
 
     video = concatenate_videoclips(processed, method="compose")
