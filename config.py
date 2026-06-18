@@ -39,7 +39,6 @@ FINAL_FPS = 24
 ELEMENT_SIZE = 320        # 角色元素尺寸
 OBJ_SIZE = 128            # 物件元素尺寸
 ELEMENT_STEPS = 10
-NUM_CONTOUR_POINTS = 48   # 轮廓采样点数，越多形状越清晰
 CONTOUR_SCALE_RATIO = 0.55
 
 # ============================================================

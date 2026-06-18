@@ -58,17 +58,6 @@ def remove_bg(img: Image.Image, threshold: int = 240) -> Image.Image:
     data[white, 3] = 0
     return Image.fromarray(data)
 
-def sample_interior(mask: np.ndarray, n: int, margin: int = 15):
-    kernel = np.ones((margin, margin), np.uint8)
-    eroded = cv2.erode(mask, kernel)
-    ys, xs = np.where(eroded > 0)
-    if len(xs) == 0:
-        return []
-    if n >= len(xs):
-        return list(zip(xs, ys))
-    idx = np.random.choice(len(xs), n, replace=False)
-    return [(int(xs[j]), int(ys[j])) for j in idx]
-
 def compose_scene(pipe, storyboard: list[dict]):
     W, H = SCENE_WIDTH, SCENE_HEIGHT
 
@@ -86,20 +75,30 @@ def compose_scene(pipe, storyboard: list[dict]):
         mask = cv2.resize(mask, (W, H))
         _, binary = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)
 
-        # ── 获取边缘点和内部点（画布坐标） ──
-        edges = cv2.Canny(binary, 100, 200)
-        ys, xs = np.where(edges > 0)
-        if len(xs) == 0:
+        # ── 轮廓内随机采样点（不精确追踪边缘，自然散布） ──
+        ys, xs = np.where(binary > 0)
+        if len(xs) < 10:
             Image.new("RGB", (W, H), "white").save(
                 SCENES_DIR / f"scene_{i+1:02d}_{scene.get('scene_id', '')}.png"
             )
             continue
 
-        pts_idx = np.linspace(0, len(xs) - 1, NUM_CONTOUR_POINTS, endpoint=False, dtype=int)
-        edge_pts = [(int(xs[j]), int(ys[j])) for j in pts_idx]
-
-        cx, cy = int(xs.mean()), int(ys.mean())
         rnd = random.Random(scene.get("seed", 42))
+        total_pts = 40
+        idx = rnd.sample(range(len(xs)), min(total_pts, len(xs)))
+        all_pts = [(int(xs[j]), int(ys[j])) for j in idx]
+
+        # 区分边界点（靠外）和内部点（靠内）
+        cy, cx = int(ys.mean()), int(xs.mean())
+        boundary_pts = []
+        interior_pts = []
+        for px, py in all_pts:
+            d = np.sqrt((py - cy)**2 + (px - cx)**2)
+            # 简单区分：离中心远的是边界，近的是内部
+            if d > 40:
+                boundary_pts.append((px, py))
+            else:
+                interior_pts.append((px, py))
 
         canvas = Image.new("RGBA", (W, H), (255, 255, 255, 255))
 
@@ -154,42 +153,39 @@ def compose_scene(pipe, storyboard: list[dict]):
             )
             obj_imgs.append(remove_bg(raw))
 
-        # ── 物件密铺轮廓边界（48 点全放）+ 内部散布填补 ──
-        inside_pts = sample_interior(binary, 10, margin=20)
+        # ── 物件自然散布（边界较大、内部较小，不精确追踪边缘） ──
         obj_idx = 0
-
-        for j, (px, py) in enumerate(edge_pts):
+        for px, py in boundary_pts:
             src = obj_imgs[obj_idx % len(obj_imgs)]
             obj_idx += 1
-            if j % 3 == 0:
-                sz = int(OBJ_SIZE * 0.35 * rnd.uniform(0.8, 1.1))
-            else:
-                sz = int(OBJ_SIZE * 0.22 * rnd.uniform(0.6, 0.9))
-                px += rnd.randint(-6, 6)
-                py += rnd.randint(-6, 6)
+            sz = int(OBJ_SIZE * 0.35 * rnd.uniform(0.7, 1.1))
+            px += rnd.randint(-12, 12)
+            py += rnd.randint(-12, 12)
+            px = max(0, min(W - 1, px))
+            py = max(0, min(H - 1, py))
             obj_resized = src.resize((sz, sz), Image.LANCZOS)
-            obj_resized = obj_resized.rotate(rnd.randint(-25, 25), expand=True, fillcolor=(0, 0, 0, 0))
+            obj_resized = obj_resized.rotate(rnd.randint(-30, 30), expand=True, fillcolor=(0, 0, 0, 0))
             canvas.paste(
                 obj_resized,
                 (px - obj_resized.width // 2, py - obj_resized.height // 2),
                 obj_resized,
             )
 
-        # 内部散布大号物件（充当场景填充，不像场景贴片那样不可控）
-        for pt in inside_pts:
+        # 内部点缀小物件
+        for px, py in interior_pts:
             src = obj_imgs[rnd.randint(0, len(obj_imgs) - 1)]
-            sz = int(OBJ_SIZE * 0.4 * rnd.uniform(0.8, 1.3))
+            sz = int(OBJ_SIZE * 0.25 * rnd.uniform(0.5, 0.9))
             obj_resized = src.resize((sz, sz), Image.LANCZOS)
             obj_resized = obj_resized.rotate(rnd.randint(-20, 20), expand=True, fillcolor=(0, 0, 0, 0))
             canvas.paste(
                 obj_resized,
-                (pt[0] - obj_resized.width // 2, pt[1] - obj_resized.height // 2),
+                (px - obj_resized.width // 2, py - obj_resized.height // 2),
                 obj_resized,
             )
 
         out_path = SCENES_DIR / f"scene_{i+1:02d}_{scene.get('scene_id', '')}.png"
         canvas.convert("RGB").save(out_path)
-        print(f"  保存: {out_path} (1 角色 + 24 物件 + 轮廓密铺)")
+        print(f"  保存: {out_path} (1 角色 + 24 物件 + ~{len(boundary_pts)} 边界 + ~{len(interior_pts)} 内部)")
 
 def main(args: list[str] | None = None):
     if args is None:
