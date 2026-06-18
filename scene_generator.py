@@ -80,14 +80,20 @@ def generate_scenes(pipe, storyboard: list[dict]):
         prompt = build_prompt(scene)
         print(f"  Prompt: {prompt[:80]}...")
 
-        # 轮廓边缘条件
+        # 轮廓边缘条件（边缘线引导物件沿轮廓分布）
         contour_path = scene.get("contour_map")
         if contour_path and Path(contour_path).exists():
             control_image = extract_contour(contour_path)
-            print(f"  使用轮廓约束: {contour_path}")
+            print(f"  使用轮廓边缘约束: {contour_path}")
         else:
             control_image = Image.new("RGB", (SCENE_WIDTH, SCENE_HEIGHT), color="white")
             print(f"  无轮廓约束，生成纯白条件图")
+
+        # 加载填充 mask 用于最终裁切（轮廓外留白，凸显轮廓边界）
+        fill_mask = None
+        if contour_path and Path(contour_path).exists():
+            fill_img = cv2.imread(contour_path, cv2.IMREAD_GRAYSCALE)
+            _, fill_mask = cv2.threshold(fill_img, 127, 255, cv2.THRESH_BINARY)
 
         # 多张变体
         variants = scene.get("variants", 1)
@@ -107,6 +113,15 @@ def generate_scenes(pipe, storyboard: list[dict]):
                     generator=generator,
                     num_images_per_prompt=SCENE_BATCH_SIZE,
                 ).images[0]
+
+                # 用填充 mask 裁切：轮廓外变白色背景，凸显物件拼出的轮廓边界
+                if fill_mask is not None:
+                    result_np = np.array(result)
+                    m = cv2.resize(fill_mask, (result_np.shape[1], result_np.shape[0]))
+                    m3 = cv2.cvtColor(m, cv2.COLOR_GRAY2RGB) / 255.0
+                    bg = np.ones_like(result_np) * 255
+                    result_np = (result_np * m3 + bg * (1 - m3)).astype(np.uint8)
+                    result = Image.fromarray(result_np)
 
                 out_name = f"scene_{i+1:02d}_{scene.get('scene_id', '')}"
                 if variants > 1:

@@ -8,6 +8,7 @@ import json
 import sys
 from pathlib import Path
 
+import cv2
 import numpy as np
 import torch
 from diffusers import (
@@ -91,6 +92,13 @@ def generate_animations(pipe, storyboard: list[dict]):
             scene_img = Image.open(scene_img_path).resize((SCENE_WIDTH, SCENE_HEIGHT))
             print(f"  参考场景图: {scene_img_path.name}")
 
+        # 加载填充 mask 用于裁切（轮廓外留白，凸显物件拼出的轮廓边界）
+        contour_path = scene.get("contour_map")
+        fill_mask = None
+        if contour_path and Path(contour_path).exists():
+            m = cv2.imread(contour_path, cv2.IMREAD_GRAYSCALE)
+            _, fill_mask = cv2.threshold(m, 127, 255, cv2.THRESH_BINARY)
+
         output = pipe(
             prompt=prompt,
             negative_prompt=NEGATIVE_PROMPT,
@@ -106,11 +114,23 @@ def generate_animations(pipe, storyboard: list[dict]):
         out_dir = ANIMATIONS_DIR / f"animation_{i+1:02d}_{scene_id}"
         out_dir.mkdir(parents=True, exist_ok=True)
 
+        cropped_frames = []
         for j, frame in enumerate(frames):
-            frame.save(out_dir / f"frame_{j:04d}.png")
+            if fill_mask is not None:
+                fnp = np.array(frame)
+                m = cv2.resize(fill_mask, (fnp.shape[1], fnp.shape[0]))
+                m3 = cv2.cvtColor(m, cv2.COLOR_GRAY2RGB) / 255.0
+                bg = np.ones_like(fnp) * 255
+                fnp = (fnp * m3 + bg * (1 - m3)).astype(np.uint8)
+                out_frame = Image.fromarray(fnp)
+                out_frame.save(out_dir / f"frame_{j:04d}.png")
+                cropped_frames.append(out_frame)
+            else:
+                frame.save(out_dir / f"frame_{j:04d}.png")
+                cropped_frames.append(frame)
 
         gif_path = ANIMATIONS_DIR / f"animation_{i+1:02d}_{scene_id}.gif"
-        export_to_gif(frames, str(gif_path))
+        export_to_gif(cropped_frames, str(gif_path))
         print(f"  保存: {gif_path} ({len(frames)} 帧)")
 
 def main(args: list[str] | None = None):
