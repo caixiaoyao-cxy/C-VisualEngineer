@@ -1,4 +1,3 @@
-import io
 import json
 import random
 import sys
@@ -11,6 +10,15 @@ from diffusers import StableDiffusionControlNetPipeline, ControlNetModel, Autoen
 from PIL import Image, ImageDraw
 
 from config import *
+
+MACARON = [
+    (180, 210, 180),  # sage
+    (230, 200, 170),  # beige
+    (200, 190, 160),  # cream
+    (160, 180, 210),  # cornflower
+    (210, 180, 190),  # dusty rose
+    (190, 200, 180),  # mint
+]
 
 def load_storyboard(path: str) -> list[dict]:
     with open(path, "r", encoding="utf-8") as f:
@@ -59,33 +67,17 @@ def remove_bg(img: Image.Image, threshold: int = 245) -> Image.Image:
     data[white, 3] = 0
     return Image.fromarray(data)
 
-def get_contour_data(mask_path: str):
-    m = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
-    _, binary = cv2.threshold(m, 127, 255, cv2.THRESH_BINARY)
-    edges = cv2.Canny(binary, 100, 200)
-    ys, xs = np.where(edges > 0)
-    if len(xs) == 0:
-        return None, None, binary
-    cx, cy = int(xs.mean()), int(ys.mean())
-    bw, bh = int(xs.max() - xs.min()), int(ys.max() - ys.min())
-    return (xs, ys), (cx, cy, bw, bh), binary
-
-def sample_contour_points(xs, ys, n: int):
-    if len(xs) == 0:
-        return []
-    indices = np.linspace(0, len(xs) - 1, n, endpoint=False, dtype=int)
-    return [(int(xs[i]), int(ys[i])) for i in indices]
+def build_scene_prompt(scene: dict) -> str:
+    sp = scene.get("scene_prompt", "")
+    if sp:
+        return f"{STYLE_PREFIX}{sp}{STYLE_SUFFIX}"
+    element = scene.get("culture_element", "")
+    desc = scene.get("description", "")
+    core = (element or desc)[:12]
+    return f"{STYLE_PREFIX}{core}, scenery, landscape{STYLE_SUFFIX}"
 
 def compose_scene(pipe, storyboard: list[dict]):
     W, H = SCENE_WIDTH, SCENE_HEIGHT
-    macaron_colors = [
-        (180, 210, 180),  # sage
-        (230, 200, 170),  # beige
-        (200, 190, 160),  # cream
-        (160, 180, 210),  # cornflower
-        (210, 180, 190),  # dusty rose
-        (190, 200, 180),  # mint
-    ]
 
     for i, scene in enumerate(storyboard):
         print(f"\n[场景 {i+1}/{len(storyboard)}] {scene.get('description', '')}")
@@ -96,38 +88,69 @@ def compose_scene(pipe, storyboard: list[dict]):
             img.save(SCENES_DIR / f"scene_{i+1:02d}_{scene.get('scene_id', '')}.png")
             continue
 
-        xs_ys, (cx, cy, bw, bh), binary = get_contour_data(contour_path)
-        if xs_ys is None:
-            continue
+        # ── 加载居中轮廓掩码，缩放到画布尺寸 ──
+        mask = cv2.imread(contour_path, cv2.IMREAD_GRAYSCALE)
+        mask = cv2.resize(mask, (W, H))
+        _, binary = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)
 
-        scale = min(W * CONTOUR_SCALE_RATIO / bw, H * CONTOUR_SCALE_RATIO / bh) * 0.85
-        ox, oy = (W - bw * scale) // 2, (H - bh * scale) // 2
+        # ── ControlNet 条件：轮廓边缘线 ──
+        edges = cv2.Canny(binary, 100, 200)
+        kernel = np.ones((3, 3), np.uint8)
+        edges = cv2.dilate(edges, kernel, iterations=1)
+        control_img = Image.fromarray(cv2.cvtColor(edges, cv2.COLOR_GRAY2RGB))
 
-        pts = sample_contour_points(xs_ys[0], xs_ys[1], NUM_CONTOUR_POINTS)
-        rnd = random.Random(scene.get("seed", 42))
+        # ── 生成完整场景 ──
+        prompt = build_scene_prompt(scene)
+        print(f"  Prompt: {prompt[:80]}...")
 
-        canvas = Image.new("RGBA", (W, H), (255, 255, 255, 255))
+        gen = torch.Generator(device=DEVICE).manual_seed(scene.get("seed", 42))
+        scene_img = pipe(
+            prompt=prompt,
+            negative_prompt=NEGATIVE_PROMPT,
+            image=control_img,
+            width=W, height=H,
+            num_inference_steps=SCENE_STEPS,
+            guidance_scale=SCENE_GUIDANCE,
+            controlnet_conditioning_scale=CONTROLNET_SCALE,
+            generator=gen,
+        ).images[0]
+
+        # ── Mask 裁切：轮廓内保留场景，轮廓外白色 ──
+        scene_np = np.array(scene_img)
+        m3 = cv2.cvtColor(binary, cv2.COLOR_GRAY2RGB) / 255.0
+        bg = np.ones_like(scene_np) * 255
+        cropped_np = (scene_np * m3 + bg * (1 - m3)).astype(np.uint8)
+        canvas = Image.fromarray(cropped_np).convert("RGBA")
         draw = ImageDraw.Draw(canvas)
 
-        # ── 1. 角色（中心） ──
+        # ── 获取轮廓边缘点（画布坐标）用于元素放置 ──
+        ys, xs = np.where(edges > 0)
+        if len(xs) == 0:
+            canvas.convert("RGB").save(SCENES_DIR / f"scene_{i+1:02d}_{scene.get('scene_id', '')}.png")
+            continue
+
+        cx, cy = int(xs.mean()), int(ys.mean())
+        bw, bh = int(xs.max() - xs.min()), int(ys.max() - ys.min())
+        pts_idx = np.linspace(0, len(xs) - 1, NUM_CONTOUR_POINTS, endpoint=False, dtype=int)
+        pts = [(int(xs[j]), int(ys[j])) for j in pts_idx]
+
+        rnd = random.Random(scene.get("seed", 42))
+        element_name = scene.get("culture_element", "local object")[:20]
+
+        # ── 角色（轮廓中心） ──
         char_prompt = (
-            f"character placeholder silhouette, standing, simple outline, "
-            f"{scene.get('culture_element', 'person')[:20]}"
+            f"character placeholder silhouette, standing, simple outline, {element_name}"
         )
-        char_raw = generate_element(
-            pipe, char_prompt, (ELEMENT_SIZE, ELEMENT_SIZE),
-            seed=scene.get("seed", 42),
-        )
+        char_raw = generate_element(pipe, char_prompt, (ELEMENT_SIZE, ELEMENT_SIZE), seed=scene.get("seed", 42))
         char_no_bg = remove_bg(char_raw)
-        c_size = int(ELEMENT_SIZE * 0.45)
+        c_size = int(ELEMENT_SIZE * 0.4)
         char_resized = char_no_bg.resize((c_size, c_size), Image.LANCZOS)
-        cpx = ox + int((bw * scale - c_size) / 2)
-        cpy = oy + int((bh * scale - c_size) / 2)
+        cpx = int(cx - c_size / 2)
+        cpy = int(cy - c_size / 2)
         canvas.paste(char_resized, (cpx, cpy), char_resized)
 
-        # ── 2. 生成 OBJ_COUNT 个独特物件 ──
-        element_name = scene.get("culture_element", "local object")[:20]
-        obj_imgs: list[Image.Image] = []
+        # ── 生成物件图标 ──
+        obj_imgs = []
         for k in range(OBJ_COUNT):
             prompts = [
                 f"{element_name}, hand-drawn icon, isolated",
@@ -136,60 +159,48 @@ def compose_scene(pipe, storyboard: list[dict]):
                 f"small {element_name}, minimalist icon",
                 f"decorative {element_name}, line art",
             ]
-            p = prompts[k % len(prompts)]
             raw = generate_element(
-                pipe, p, (OBJ_SIZE, OBJ_SIZE),
+                pipe, prompts[k % len(prompts)], (OBJ_SIZE, OBJ_SIZE),
                 seed=scene.get("seed", 42) + 100 + k,
             )
-            nobg = remove_bg(raw)
-            obj_imgs.append(nobg)
+            obj_imgs.append(remove_bg(raw))
 
-        # ── 3. 沿轮廓密集放置 ──
-        dot_r = max(3, int(scale * 3))
+        # ── 沿轮廓边界放置物件 + 装饰圆点 ──
+        dot_r = max(2, int(min(W, H) * 0.008))
 
         for j, (px, py) in enumerate(pts):
-            sx = int((px - (cx - bw // 2)) * scale + ox)
-            sy = int((py - (cy - bh // 2)) * scale + oy)
-
             if j % 3 == 0:
-                # SD 物件（每3个点放一个）
                 obj = obj_imgs[(j // 3) % OBJ_COUNT]
-                base = int(OBJ_SIZE * 0.35)
-                sz = int(base * rnd.uniform(0.7, 1.1))
+                sz = int(OBJ_SIZE * 0.3 * rnd.uniform(0.7, 1.1))
                 obj_resized = obj.resize((sz, sz), Image.LANCZOS)
                 if rnd.random() > 0.3:
                     obj_resized = obj_resized.rotate(rnd.randint(-15, 15), expand=True, fillcolor=(0, 0, 0, 0))
                 canvas.paste(
                     obj_resized,
-                    (sx - obj_resized.width // 2, sy - obj_resized.height // 2),
+                    (px - obj_resized.width // 2, py - obj_resized.height // 2),
                     obj_resized,
                 )
             else:
-                # 装饰圆点（macaron 色盘）
-                c = macaron_colors[j % len(macaron_colors)]
+                c = MACARON[j % len(MACARON)]
                 r = dot_r * rnd.uniform(0.8, 2.0)
-                draw.ellipse(
-                    [sx - r, sy - r, sx + r, sy + r],
-                    fill=c + (180,),
-                )
+                draw.ellipse([px - r, py - r, px + r, py + r], fill=c + (200,))
 
-        # ── 4. 散布十字星装饰 ──
+        # ── 散布十字星装饰 ──
         for _ in range(NUM_CONTOUR_POINTS * 2):
-            dx = rnd.randint(-25, 25) + int(W * 0.04)
-            dy = rnd.randint(-25, 25) + int(H * 0.04)
+            dx = rnd.randint(-20, 20) + int(W * 0.03)
+            dy = rnd.randint(-20, 20) + int(H * 0.03)
             for bx, by in pts:
-                sx = int((bx - (cx - bw // 2)) * scale + ox) + dx
-                sy = int((by - (cy - bh // 2)) * scale + oy) + dy
+                sx, sy = bx + dx, by + dy
                 if 0 <= sx < W and 0 <= sy < H:
                     ss = rnd.randint(2, 5)
-                    clr = macaron_colors[rnd.randint(0, len(macaron_colors) - 1)] + (160,)
+                    clr = MACARON[rnd.randint(0, len(MACARON) - 1)] + (160,)
                     draw.line([sx - ss, sy, sx + ss, sy], fill=clr, width=1)
                     draw.line([sx, sy - ss, sx, sy + ss], fill=clr, width=1)
                     break
 
         out_path = SCENES_DIR / f"scene_{i+1:02d}_{scene.get('scene_id', '')}.png"
         canvas.convert("RGB").save(out_path)
-        print(f"  保存: {out_path} ({len(pts)} 个轮廓点, {OBJ_COUNT} 种物件)")
+        print(f"  保存: {out_path} (场景 + {(len(pts) + 2) // 3} 个边缘物件)")
 
 def main(args: list[str] | None = None):
     if args is None:
