@@ -104,8 +104,6 @@ def compose_scene(pipe, storyboard: list[dict]):
         pts_idx = np.linspace(0, len(xs) - 1, NUM_CONTOUR_POINTS, endpoint=False, dtype=int)
         edge_pts = [(int(xs[j]), int(ys[j])) for j in pts_idx]
 
-        interior_pts = sample_interior(binary, 8, margin=18)
-
         cx, cy = int(xs.mean()), int(ys.mean())
         rnd = random.Random(scene.get("seed", 42))
 
@@ -113,36 +111,6 @@ def compose_scene(pipe, storyboard: list[dict]):
         draw = ImageDraw.Draw(canvas)
 
         element_name = scene.get("culture_element", "local object")[:20]
-        scene_prompt = scene.get("scene_prompt", scene.get("description", ""))[:40]
-
-        # ── 生成场景贴片（拼出内部画面） ──
-        patch_topics = [
-            f"{scene_prompt}, scenery landscape, hand-painted",
-            f"{element_name}, nature scene, sketchy",
-            f"traditional {element_name} scenery, watercolor",
-            f"landscape with {element_name}, illustration style",
-            f"panorama of {element_name}, artistic",
-            f"{element_name} environment, doodle style",
-            f"scenic view, {element_name}, marker drawing",
-            f"landscape detail, {element_name}, pencil sketch",
-        ]
-        patch_imgs = []
-        for k in range(min(6, len(patch_topics))):
-            raw = generate_element(
-                pipe, patch_topics[k], (256, 256),
-                seed=scene.get("seed", 42) + 200 + k * 11,
-            )
-            patch_imgs.append(remove_bg(raw))
-
-        for k, pt in enumerate(interior_pts):
-            if k >= len(patch_imgs):
-                break
-            patch = patch_imgs[k]
-            sz = int(rnd.uniform(80, 130))
-            patch_resized = patch.resize((sz, sz), Image.LANCZOS)
-            px = pt[0] - sz // 2 + rnd.randint(-15, 15)
-            py = pt[1] - sz // 2 + rnd.randint(-15, 15)
-            canvas.paste(patch_resized, (px, py), patch_resized)
 
         # ── 生成角色（中心） ──
         char_raw = generate_element(
@@ -158,7 +126,7 @@ def compose_scene(pipe, storyboard: list[dict]):
         cpy = int(cy - c_size / 2)
         canvas.paste(char_resized, (cpx, cpy), char_resized)
 
-        # ── 生成 16 个独特物件 ──
+        # ── 生成 24 个独特物件（全为具体物件，不生成场景） ──
         obj_topics = [
             f"{element_name}, hand-drawn icon", f"{element_name} illustration, sticker",
             f"traditional {element_name}, sketch", f"small {element_name}, minimalist",
@@ -168,20 +136,26 @@ def compose_scene(pipe, storyboard: list[dict]):
             f"simple {element_name} symbol, logo", f"hand-drawn {element_name} flowers",
             f"minimal {element_name} line drawing", f"watercolor {element_name} splash",
             f"pencil sketch {element_name} study", f"folk art {element_name} motif",
+            f"tiny {element_name}, icon style", f"{element_name} bud, sprout, doodle",
+            f"round {element_name} badge, sticker", f"{element_name} silhouette, minimal",
+            f"stamped {element_name}, postmark style", f"woven {element_name} pattern",
+            f"folded {element_name}, origami style", f"baked {element_name}, clay charm",
         ]
         obj_imgs = []
-        for k in range(len(obj_topics)):
+        for k in range(24):
             raw = generate_element(
                 pipe, obj_topics[k], (OBJ_SIZE, OBJ_SIZE),
                 seed=scene.get("seed", 42) + 100 + k * 7,
             )
             obj_imgs.append(remove_bg(raw))
 
-        # ── 物件密铺轮廓边界 + 散布内部 ──
-        inside_obj_pts = sample_interior(binary, 6, margin=25)
+        # ── 物件密铺轮廓边界（48 点全放）+ 内部散布填补 ──
+        inside_pts = sample_interior(binary, 10, margin=20)
+        obj_idx = 0
 
         for j, (px, py) in enumerate(edge_pts):
-            src = obj_imgs[j % len(obj_imgs)]
+            src = obj_imgs[obj_idx % len(obj_imgs)]
+            obj_idx += 1
             if j % 3 == 0:
                 sz = int(OBJ_SIZE * 0.35 * rnd.uniform(0.8, 1.1))
             else:
@@ -196,12 +170,12 @@ def compose_scene(pipe, storyboard: list[dict]):
                 obj_resized,
             )
 
-        # 内部额外散布小物件
-        for pt in inside_obj_pts:
+        # 内部散布大号物件（充当场景填充，不像场景贴片那样不可控）
+        for pt in inside_pts:
             src = obj_imgs[rnd.randint(0, len(obj_imgs) - 1)]
-            sz = int(OBJ_SIZE * 0.2 * rnd.uniform(0.6, 0.9))
+            sz = int(OBJ_SIZE * 0.4 * rnd.uniform(0.8, 1.3))
             obj_resized = src.resize((sz, sz), Image.LANCZOS)
-            obj_resized = obj_resized.rotate(rnd.randint(-30, 30), expand=True, fillcolor=(0, 0, 0, 0))
+            obj_resized = obj_resized.rotate(rnd.randint(-20, 20), expand=True, fillcolor=(0, 0, 0, 0))
             canvas.paste(
                 obj_resized,
                 (pt[0] - obj_resized.width // 2, pt[1] - obj_resized.height // 2),
