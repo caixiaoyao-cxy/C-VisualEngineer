@@ -75,8 +75,9 @@ def compose_scene(pipe, storyboard: list[dict]):
         mask = cv2.resize(mask, (W, H))
         _, binary = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)
 
-        # ── 轮廓内随机采样点（不精确追踪边缘，自然散布） ──
-        ys, xs = np.where(binary > 0)
+        # ── 轮廓边缘点（加随机抖动，保持大致形状但不精确追踪） ──
+        edges = cv2.Canny(binary, 100, 200)
+        ys, xs = np.where(edges > 0)
         if len(xs) < 10:
             Image.new("RGB", (W, H), "white").save(
                 SCENES_DIR / f"scene_{i+1:02d}_{scene.get('scene_id', '')}.png"
@@ -84,21 +85,18 @@ def compose_scene(pipe, storyboard: list[dict]):
             continue
 
         rnd = random.Random(scene.get("seed", 42))
-        total_pts = 40
-        idx = rnd.sample(range(len(xs)), min(total_pts, len(xs)))
-        all_pts = [(int(xs[j]), int(ys[j])) for j in idx]
+        n_pts = min(40, len(xs))
+        idx = rnd.sample(range(len(xs)), n_pts)
+        # 边缘点加抖动自然散布
+        all_pts = []
+        for j in idx:
+            px = int(xs[j]) + rnd.randint(-18, 18)
+            py = int(ys[j]) + rnd.randint(-18, 18)
+            px = max(0, min(W - 1, px))
+            py = max(0, min(H - 1, py))
+            all_pts.append((px, py))
 
-        # 区分边界点（靠外）和内部点（靠内）
         cy, cx = int(ys.mean()), int(xs.mean())
-        boundary_pts = []
-        interior_pts = []
-        for px, py in all_pts:
-            d = np.sqrt((py - cy)**2 + (px - cx)**2)
-            # 简单区分：离中心远的是边界，近的是内部
-            if d > 40:
-                boundary_pts.append((px, py))
-            else:
-                interior_pts.append((px, py))
 
         canvas = Image.new("RGBA", (W, H), (255, 255, 255, 255))
 
@@ -153,16 +151,16 @@ def compose_scene(pipe, storyboard: list[dict]):
             )
             obj_imgs.append(remove_bg(raw))
 
-        # ── 物件自然散布（边界较大、内部较小，不精确追踪边缘） ──
+        # ── 物件散布（边缘大物件 + 内部小点缀） ──
+        n_boundary = min(len(all_pts), 30)
+        boundary = all_pts[:n_boundary]
+        interior = all_pts[n_boundary:]
+
         obj_idx = 0
-        for px, py in boundary_pts:
+        for px, py in boundary:
             src = obj_imgs[obj_idx % len(obj_imgs)]
             obj_idx += 1
             sz = int(OBJ_SIZE * 0.35 * rnd.uniform(0.7, 1.1))
-            px += rnd.randint(-12, 12)
-            py += rnd.randint(-12, 12)
-            px = max(0, min(W - 1, px))
-            py = max(0, min(H - 1, py))
             obj_resized = src.resize((sz, sz), Image.LANCZOS)
             obj_resized = obj_resized.rotate(rnd.randint(-30, 30), expand=True, fillcolor=(0, 0, 0, 0))
             canvas.paste(
@@ -171,8 +169,7 @@ def compose_scene(pipe, storyboard: list[dict]):
                 obj_resized,
             )
 
-        # 内部点缀小物件
-        for px, py in interior_pts:
+        for px, py in interior:
             src = obj_imgs[rnd.randint(0, len(obj_imgs) - 1)]
             sz = int(OBJ_SIZE * 0.25 * rnd.uniform(0.5, 0.9))
             obj_resized = src.resize((sz, sz), Image.LANCZOS)
@@ -185,7 +182,7 @@ def compose_scene(pipe, storyboard: list[dict]):
 
         out_path = SCENES_DIR / f"scene_{i+1:02d}_{scene.get('scene_id', '')}.png"
         canvas.convert("RGB").save(out_path)
-        print(f"  保存: {out_path} (1 角色 + 24 物件 + ~{len(boundary_pts)} 边界 + ~{len(interior_pts)} 内部)")
+        print(f"  保存: {out_path} (1 角色 + 24 物件 + {len(all_pts)} 散布点)")
 
 def main(args: list[str] | None = None):
     if args is None:
