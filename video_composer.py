@@ -9,11 +9,10 @@ import sys
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
 
 MOVIEPY_V2 = True
 try:
-    from moviepy import ImageSequenceClip, CompositeVideoClip, concatenate_videoclips, ImageClip
+    from moviepy import ImageSequenceClip, concatenate_videoclips
     from moviepy.video.fx import FadeIn, FadeOut
 except ImportError:
     MOVIEPY_V2 = False
@@ -40,45 +39,6 @@ def make_clip_from_frames(frame_dir: Path, duration: float, fps: int) -> ImageSe
         clip = concatenate_videoclips([clip] * n_repeats)
     return clip.subclip(0, duration)
 
-def _find_font(size=28):
-    candidates = [
-        "SimHei.ttf",
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-    ]
-    for path in candidates:
-        try:
-            return ImageFont.truetype(path, size)
-        except (IOError, OSError):
-            continue
-    return ImageFont.load_default()
-
-def make_subtitle_clip(text: str, duration: float, start: float, video_size: tuple[int, int], fontsize: int = 28):
-    w, h = video_size
-    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-    font = _find_font(fontsize)
-    bbox = draw.textbbox((0, 0), text, font=font)
-    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-    x = (w - tw) // 2
-    y = h - th - 20
-    stroke = 2
-    for dx in range(-stroke, stroke + 1):
-        for dy in range(-stroke, stroke + 1):
-            if dx == 0 and dy == 0:
-                continue
-            draw.text((x + dx, y + dy), text, font=font, fill="black")
-    draw.text((x, y), text, font=font, fill="white")
-    frame = np.array(img)
-    if MOVIEPY_V2:
-        clip = ImageClip(frame, duration=duration).with_start(start).with_position(("center", "bottom"))
-    else:
-        clip = ImageClip(frame).set_duration(duration).set_start(start).set_position(("center", "bottom"))
-    return clip
-
-def add_subtitle(video, text: str, duration: float, start: float = 0):
-    return make_subtitle_clip(text, duration, start, video.size)
 
 def main(args: list[str] | None = None):
     if args is None:
@@ -133,20 +93,6 @@ def main(args: list[str] | None = None):
         processed.append(c)
 
     video = concatenate_videoclips(processed, method="compose")
-
-    # 字幕
-    subtitles = []
-    if storyboard:
-        dur_per_scene = video.duration / len(storyboard)
-        for i, scene in enumerate(storyboard):
-            narration = scene.get("narration", scene.get("description", ""))
-            if narration:
-                subtitles.append(
-                    add_subtitle(video, narration, dur_per_scene, i * dur_per_scene)
-                )
-
-    if subtitles:
-        video = CompositeVideoClip([video] + subtitles)
 
     # 导出
     video_path = VIDEO_DIR / "final_video.mp4"

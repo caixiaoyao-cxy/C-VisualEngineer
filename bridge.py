@@ -111,9 +111,25 @@ def extract_contour_from_map(map_path: str, output_mask: str) -> dict[str, Any]:
         biggest = max(contours, key=cv2.contourArea)
         cv2.drawContours(mask, [biggest], -1, 255, thickness=cv2.FILLED)
 
+    # 居中缩放：把轮廓缩小到屏幕中央，不占满
+    ys, xs = np.where(mask > 0)
+    if len(xs) > 0:
+        cx2, cy2 = int(xs.mean()), int(ys.mean())
+        bw2, bh2 = int(xs.max() - xs.min()) + 40, int(ys.max() - ys.min()) + 40
+        scale = min(w * CONTOUR_SCALE_RATIO / bw2, h * CONTOUR_SCALE_RATIO / bh2)
+        new_w, new_h = int(bw2 * scale), int(bh2 * scale)
+        ox2, oy2 = (w - new_w) // 2, (h - new_h) // 2
+        centered = np.zeros_like(mask)
+        for y, x in zip(ys, xs):
+            nx = int((x - (cx2 - bw2//2)) * scale) + ox2
+            ny = int((y - (cy2 - bh2//2)) * scale) + oy2
+            if 0 <= nx < w and 0 <= ny < h:
+                centered[ny, nx] = 255
+        mask = centered
+
     Path(output_mask).parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(output_mask, mask)
-    log(f"轮廓掩码已保存: {output_mask} ({w}x{h})")
+    log(f"轮廓掩码已保存: {output_mask} ({w}x{h})，已居中缩放至 {CONTOUR_SCALE_RATIO*100:.0f}%")
 
     return {"width": w, "height": h, "mask_path": output_mask, "contour_count": len(contours)}
 
