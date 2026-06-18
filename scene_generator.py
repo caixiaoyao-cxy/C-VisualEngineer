@@ -149,7 +149,7 @@ def compose_scene(pipe, storyboard: list[dict]):
         cpy = int(cy - c_size / 2)
         canvas.paste(char_resized, (cpx, cpy), char_resized)
 
-        # ── 生成 16 个独特物件（每个 prompt + seed 都不同，绝不循环） ──
+        # ── 生成 16 个独特物件 ──
         obj_prompts = [
             f"{element_name}, hand-drawn icon, isolated",
             f"{element_name} illustration, sticker style",
@@ -169,34 +169,38 @@ def compose_scene(pipe, storyboard: list[dict]):
             f"folk art {element_name} motif",
         ]
         obj_imgs = []
-        for k in range(min(OBJ_COUNT, len(obj_prompts))):
+        for k in range(min(16, len(obj_prompts))):
             raw = generate_element(
                 pipe, obj_prompts[k], (OBJ_SIZE, OBJ_SIZE),
                 seed=scene.get("seed", 42) + 100 + k * 7,
             )
             obj_imgs.append(remove_bg(raw))
 
-        # ── 沿轮廓边界放置物件 + 装饰圆点（每3个点放一个独特物件，绝不循环） ──
+        # ── 沿轮廓密集放置物件，每点都是物件（无装饰圆点） ──
+        # 48 个点：16 个独特 + 32 个复用（不同缩放/旋转/偏移，避免循环感）
         obj_idx = 0
-        dot_r = max(2, int(min(W, H) * 0.008))
-
         for j, (px, py) in enumerate(pts):
-            if j % 3 == 0 and obj_idx < len(obj_imgs):
-                obj = obj_imgs[obj_idx]
-                obj_idx += 1
-                sz = int(OBJ_SIZE * 0.4 * rnd.uniform(0.7, 1.1))
-                obj_resized = obj.resize((sz, sz), Image.LANCZOS)
-                if rnd.random() > 0.3:
-                    obj_resized = obj_resized.rotate(rnd.randint(-15, 15), expand=True, fillcolor=(0, 0, 0, 0))
-                canvas.paste(
-                    obj_resized,
-                    (px - obj_resized.width // 2, py - obj_resized.height // 2),
-                    obj_resized,
-                )
+            src = obj_imgs[obj_idx % len(obj_imgs)]
+            obj_idx += 1
+
+            # 独特物件（每3个点）用大尺寸；复用物件用小尺寸 + 随机偏移
+            if j % 3 == 0:
+                sz = int(OBJ_SIZE * 0.4 * rnd.uniform(0.8, 1.1))
             else:
-                c = MACARON[j % len(MACARON)]
-                r = dot_r * rnd.uniform(0.8, 2.0)
-                draw.ellipse([px - r, py - r, px + r, py + r], fill=c + (200,))
+                sz = int(OBJ_SIZE * 0.25 * rnd.uniform(0.6, 0.9))
+                # 随机偏移，让复用物件不重叠在同一个位置
+                offset_r = int(max(4, min(W, H) * 0.01))
+                px += rnd.randint(-offset_r, offset_r)
+                py += rnd.randint(-offset_r, offset_r)
+
+            obj_resized = src.resize((sz, sz), Image.LANCZOS)
+            rot = rnd.randint(-25, 25)
+            obj_resized = obj_resized.rotate(rot, expand=True, fillcolor=(0, 0, 0, 0))
+            canvas.paste(
+                obj_resized,
+                (px - obj_resized.width // 2, py - obj_resized.height // 2),
+                obj_resized,
+            )
 
         # ── 散布十字星装饰 ──
         for _ in range(NUM_CONTOUR_POINTS * 2):
