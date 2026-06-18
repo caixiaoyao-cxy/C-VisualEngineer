@@ -115,12 +115,16 @@ def compose_scene(pipe, storyboard: list[dict]):
             generator=gen,
         ).images[0]
 
-        # ── Mask 裁切：轮廓内保留场景，轮廓外白色 ──
-        scene_np = np.array(scene_img)
-        m3 = cv2.cvtColor(binary, cv2.COLOR_GRAY2RGB) / 255.0
-        bg = np.ones_like(scene_np) * 255
-        cropped_np = (scene_np * m3 + bg * (1 - m3)).astype(np.uint8)
-        canvas = Image.fromarray(cropped_np).convert("RGBA")
+        # ── 软裁切：轮廓内保留场景，边缘羽化过渡到浅色背景 ──
+        scene_np = np.array(scene_img).astype(np.float32)
+        alpha = cv2.GaussianBlur(binary.astype(np.float32), (0, 0), sigmaX=12) / 255.0
+        alpha = np.clip(alpha, 0, 1)
+        # 背景用浅 macaron 米色，比纯白更自然
+        bg_color = np.array([248, 245, 240], dtype=np.float32)
+        bg = np.ones_like(scene_np) * bg_color.reshape(1, 1, 3)
+        alpha3 = np.stack([alpha] * 3, axis=-1)
+        blended = (scene_np * alpha3 + bg * (1 - alpha3)).astype(np.uint8)
+        canvas = Image.fromarray(blended).convert("RGBA")
         draw = ImageDraw.Draw(canvas)
 
         # ── 获取轮廓边缘点（画布坐标）用于元素放置 ──
