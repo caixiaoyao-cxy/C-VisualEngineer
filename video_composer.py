@@ -9,17 +9,18 @@ import sys
 from pathlib import Path
 
 import numpy as np
+from PIL import Image, ImageDraw, ImageFont
 
 MOVIEPY_V2 = True
 try:
-    from moviepy import ImageSequenceClip, CompositeVideoClip, concatenate_videoclips, TextClip
+    from moviepy import ImageSequenceClip, CompositeVideoClip, concatenate_videoclips, ImageClip
     from moviepy.video.fx import FadeIn, FadeOut
 except ImportError:
     MOVIEPY_V2 = False
     from moviepy.video.io.ImageSequenceClip import ImageSequenceClip
     from moviepy.video.compositing.CompositeVideoClip import CompositeVideoClip
     from moviepy.video.compositing.concatenate import concatenate_videoclips
-    from moviepy.video.VideoClip import TextClip
+    from moviepy.video.VideoClip import ImageClip
     import moviepy.video.fx.all as vfx
     from moviepy.video.fx import fadein, fadeout
 
@@ -39,22 +40,45 @@ def make_clip_from_frames(frame_dir: Path, duration: float, fps: int) -> ImageSe
         clip = concatenate_videoclips([clip] * n_repeats)
     return clip.subclip(0, duration)
 
-def _make_text_clip(text, fontsize=28, **kw):
-    try:
-        return TextClip(text, fontsize=fontsize, **kw)
-    except TypeError:
-        return TextClip(text=text, fontsize=fontsize, **kw)
+def _find_font(size=28):
+    candidates = [
+        "SimHei.ttf",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    ]
+    for path in candidates:
+        try:
+            return ImageFont.truetype(path, size)
+        except (IOError, OSError):
+            continue
+    return ImageFont.load_default()
+
+def make_subtitle_clip(text: str, duration: float, start: float, video_size: tuple[int, int], fontsize: int = 28):
+    w, h = video_size
+    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    font = _find_font(fontsize)
+    bbox = draw.textbbox((0, 0), text, font=font)
+    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    x = (w - tw) // 2
+    y = h - th - 20
+    stroke = 2
+    for dx in range(-stroke, stroke + 1):
+        for dy in range(-stroke, stroke + 1):
+            if dx == 0 and dy == 0:
+                continue
+            draw.text((x + dx, y + dy), text, font=font, fill="black")
+    draw.text((x, y), text, font=font, fill="white")
+    frame = np.array(img)
+    if MOVIEPY_V2:
+        clip = ImageClip(frame, duration=duration).with_start(start).with_position(("center", "bottom"))
+    else:
+        clip = ImageClip(frame).set_duration(duration).set_start(start).set_position(("center", "bottom"))
+    return clip
 
 def add_subtitle(video, text: str, duration: float, start: float = 0):
-    txt = _make_text_clip(
-        text,
-        fontsize=28,
-        color="white",
-        stroke_color="black",
-        stroke_width=1,
-        font="SimHei",
-    ).set_position(("center", "bottom")).set_start(start).set_duration(duration)
-    return txt
+    return make_subtitle_clip(text, duration, start, video.size)
 
 def main(args: list[str] | None = None):
     if args is None:
