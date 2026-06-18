@@ -149,29 +149,42 @@ def compose_scene(pipe, storyboard: list[dict]):
         cpy = int(cy - c_size / 2)
         canvas.paste(char_resized, (cpx, cpy), char_resized)
 
-        # ── 生成物件图标 ──
+        # ── 生成 16 个独特物件（每个 prompt + seed 都不同，绝不循环） ──
+        obj_prompts = [
+            f"{element_name}, hand-drawn icon, isolated",
+            f"{element_name} illustration, sticker style",
+            f"traditional {element_name}, sketch, simple",
+            f"small {element_name}, minimalist icon",
+            f"decorative {element_name}, line art",
+            f"cute {element_name} mascot, doodle",
+            f"vintage {element_name} badge, emblem",
+            f"flat {element_name} vector icon",
+            f"{element_name} with leaves, nature illustration",
+            f"ornamental {element_name}, decorative pattern",
+            f"simple {element_name} symbol, logo style",
+            f"hand-drawn {element_name} with flowers",
+            f"minimal {element_name} line drawing",
+            f"watercolor {element_name} splash",
+            f"pencil sketch {element_name} study",
+            f"folk art {element_name} motif",
+        ]
         obj_imgs = []
-        for k in range(OBJ_COUNT):
-            prompts = [
-                f"{element_name}, hand-drawn icon, isolated",
-                f"{element_name} illustration, sticker style",
-                f"traditional {element_name}, sketch, simple",
-                f"small {element_name}, minimalist icon",
-                f"decorative {element_name}, line art",
-            ]
+        for k in range(min(OBJ_COUNT, len(obj_prompts))):
             raw = generate_element(
-                pipe, prompts[k % len(prompts)], (OBJ_SIZE, OBJ_SIZE),
-                seed=scene.get("seed", 42) + 100 + k,
+                pipe, obj_prompts[k], (OBJ_SIZE, OBJ_SIZE),
+                seed=scene.get("seed", 42) + 100 + k * 7,
             )
             obj_imgs.append(remove_bg(raw))
 
-        # ── 沿轮廓边界放置物件 + 装饰圆点 ──
+        # ── 沿轮廓边界放置物件 + 装饰圆点（每3个点放一个独特物件，绝不循环） ──
+        obj_idx = 0
         dot_r = max(2, int(min(W, H) * 0.008))
 
         for j, (px, py) in enumerate(pts):
-            if j % 3 == 0:
-                obj = obj_imgs[(j // 3) % OBJ_COUNT]
-                sz = int(OBJ_SIZE * 0.3 * rnd.uniform(0.7, 1.1))
+            if j % 3 == 0 and obj_idx < len(obj_imgs):
+                obj = obj_imgs[obj_idx]
+                obj_idx += 1
+                sz = int(OBJ_SIZE * 0.4 * rnd.uniform(0.7, 1.1))
                 obj_resized = obj.resize((sz, sz), Image.LANCZOS)
                 if rnd.random() > 0.3:
                     obj_resized = obj_resized.rotate(rnd.randint(-15, 15), expand=True, fillcolor=(0, 0, 0, 0))
