@@ -39,10 +39,16 @@ def make_clip_from_frames(frame_dir: Path, duration: float, fps: int) -> ImageSe
         clip = concatenate_videoclips([clip] * n_repeats)
     return clip.subclip(0, duration)
 
+def _make_text_clip(text, fontsize=28, **kw):
+    try:
+        return TextClip(text, fontsize=fontsize, **kw)
+    except TypeError:
+        return TextClip(text=text, fontsize=fontsize, **kw)
+
 def add_subtitle(video, text: str, duration: float, start: float = 0):
-    txt = TextClip(
-        text=text,
-        font_size=28,
+    txt = _make_text_clip(
+        text,
+        fontsize=28,
         color="white",
         stroke_color="black",
         stroke_width=1,
