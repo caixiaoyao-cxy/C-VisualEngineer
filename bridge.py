@@ -255,6 +255,7 @@ def generate_storyboard_scenes(place_name: str, contour_map_path: str, culture_i
             "action": action,
             "narration": narration,
             "style": "二次元, 手绘风, 童话风, 清新温暖",
+            "culture_element": item.get("element_name", ""),
             "contour_map": contour_map_path,
             "seed": 42 + i * 100,
             "variants": 1,

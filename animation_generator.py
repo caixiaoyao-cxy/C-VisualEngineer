@@ -26,8 +26,10 @@ def load_storyboard(path: str) -> list[dict]:
         return json.load(f)
 
 def build_prompt(scene: dict) -> str:
-    desc = scene.get("description", "")[:25]
-    return f"{STYLE_PREFIX}{desc}, minimalist, flat illustration{STYLE_SUFFIX}"
+    element = scene.get("culture_element", "")
+    desc = scene.get("description", "")
+    core = (element or desc)[:12]
+    return f"{STYLE_PREFIX}{core}, minimalist, flat illustration{STYLE_SUFFIX}"
 
 def load_pipeline():
     print(f"[加载 AnimateDiff] 基础模型: {ANIMATION_BASE_MODEL}")

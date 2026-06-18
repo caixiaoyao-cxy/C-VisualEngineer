@@ -28,8 +28,10 @@ def extract_contour(mask_path: str) -> Image.Image:
     return Image.fromarray(colored)
 
 def build_prompt(scene: dict) -> str:
-    desc = scene.get("description", "")[:25]
-    return f"{STYLE_PREFIX}{desc}, minimalist, flat illustration{STYLE_SUFFIX}"
+    element = scene.get("culture_element", "")
+    desc = scene.get("description", "")
+    core = (element or desc)[:12]
+    return f"{STYLE_PREFIX}{core}, minimalist, flat illustration{STYLE_SUFFIX}"
 
 def load_pipeline():
     print(f"[加载模型] 基础: {SCENE_BASE_MODEL}")
