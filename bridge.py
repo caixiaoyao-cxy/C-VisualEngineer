@@ -2,6 +2,7 @@ import argparse
 import io
 import json
 import math
+import random
 import shutil
 import sys
 import time
@@ -116,7 +117,7 @@ def extract_contour_from_map(map_path: str, output_mask: str) -> dict[str, Any]:
 
     return {"width": w, "height": h, "mask_path": output_mask, "contour_count": len(contours)}
 
-def _ddgs_search(queries: list[str], max_results: int = 5) -> list[dict]:
+def _ddgs_search(queries: list[str], max_results: int = 15) -> list[dict]:
     try:
         from duckduckgo_search import DDGS
         for query in queries:
@@ -138,7 +139,7 @@ def _ddgs_search(queries: list[str], max_results: int = 5) -> list[dict]:
         pass
     return []
 
-def _wikipedia_search(query: str, max_results: int = 5) -> list[dict]:
+def _wikipedia_search(query: str, max_results: int = 15) -> list[dict]:
     try:
         import requests as req
     except ImportError:
@@ -155,7 +156,6 @@ def _wikipedia_search(query: str, max_results: int = 5) -> list[dict]:
     for url in urls:
         try:
             resp = req.get(url, headers={"User-Agent": "C-VisualEngineer/1.0"}, timeout=10)
-            log(f"  Wikipedia 状态码: {resp.status_code}, 长度: {len(resp.content)}")
             if resp.status_code != 200:
                 continue
             data = resp.json()
@@ -221,6 +221,86 @@ def wiki_to_culture_items(place_name: str, wiki_results: list[dict]) -> list[dic
             "sources": [],
         })
     return items
+
+def rank_culture_items(items: list[dict]) -> list[dict]:
+    """按标志性程度排序：匹配多类别关键词的排前面，泛泛的排后面"""
+    scored = []
+    for item in items:
+        score = 0
+        title = item.get("element_name", "")
+        summary = item.get("summary", "")
+        category = item.get("category", "")
+        # 有明确分类 +1
+        if category != "产业符号":
+            score += 1
+        # 标题短且具体加分（不含百科、维基等通用词）
+        generic_words = ["百科", "维基", "门户", "攻略", "官网", "首页", "旅游"]
+        if not any(g in title for g in generic_words):
+            score += 2
+        # 标题长度适中（5-15 字）
+        if 5 <= len(title) <= 15:
+            score += 1
+        # 摘要中有具体描述
+        if len(summary) > 50:
+            score += 1
+        scored.append((score, item))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [item for _, item in scored]
+
+def interactive_select_items(all_items: list[dict], needed: int = 5) -> list[dict]:
+    print(f"\n{'='*60}")
+    print(f"  共搜索到 {len(all_items)} 个文化元素")
+    print(f"  需要从中选择 {needed} 个用于分镜")
+    print(f"{'='*60}")
+
+    for i, item in enumerate(all_items):
+        cat = item.get("category", "其他")
+        name = item.get("element_name", "?")
+        summary = item.get("summary", "")[:80]
+        print(f"  [{i+1}] [{cat}] {name}")
+        if summary:
+            print(f"      {summary}")
+
+    print(f"\n  选择方式：")
+    print(f"    1) 输入序号用逗号分隔（如 1,3,5,7,9）")
+    print(f"    2) 输入 random 随机抽取 {needed} 个")
+    print(f"    3) 输入 theme:分类名 按主题筛选（如 theme:建筑地标）")
+    print(f"    4) 直接回车 = 用排序后的前 {needed} 个")
+
+    choice = input("\n  请选择: ").strip()
+
+    if not choice:
+        return rank_culture_items(all_items)[:needed]
+
+    if choice.lower() == "random":
+        selected = random.sample(all_items, min(needed, len(all_items)))
+        return selected
+
+    if choice.lower().startswith("theme:"):
+        theme = choice[6:].strip()
+        filtered = [item for item in all_items if theme.lower() in item.get("category", "").lower()]
+        if not filtered:
+            print(f"  未找到主题「{theme}」，使用全部结果")
+            filtered = all_items
+        if len(filtered) > needed:
+            filtered = rank_culture_items(filtered)[:needed]
+        return filtered
+
+    try:
+        indices = [int(x.strip()) for x in choice.split(",") if x.strip()]
+        selected = []
+        seen = set()
+        for idx in indices:
+            if 1 <= idx <= len(all_items) and idx not in seen:
+                selected.append(all_items[idx - 1])
+                seen.add(idx)
+        if not selected:
+            print("  无效输入，使用前 5 个")
+            return rank_culture_items(all_items)[:needed]
+        return selected[:needed]
+    except ValueError:
+        print("  输入无法识别，使用前 5 个")
+        return rank_culture_items(all_items)[:needed]
 
 def generate_storyboard_scenes(place_name: str, contour_map_path: str, culture_items: list[dict] | None = None, num_scenes: int = 5) -> list[dict]:
     if culture_items:
@@ -314,9 +394,9 @@ def run_pipeline_interactive():
     raw = search_culture(place_name)
     if raw:
         culture_items = wiki_to_culture_items(place_name, raw)
-        log(f"找到 {len(culture_items)} 个文化元素")
-        for c in culture_items[:5]:
-            log(f"  - [{c['category']}] {c['element_name']}")
+        culture_items = rank_culture_items(culture_items)
+        log(f"找到 {len(culture_items)} 个文化元素（已排序）")
+        culture_items = interactive_select_items(culture_items, needed=5)
 
     log("生成分镜脚本...")
     scenes = generate_storyboard_scenes(place_name, mask_path, culture_items)
@@ -368,6 +448,7 @@ def main():
     parser.add_argument("--place", default=None, help="地名（可选，不传则交互式输入）")
     parser.add_argument("--map", default=None, help="地图图片路径（可选，跳过OSM）")
     parser.add_argument("--storyboard", default=None, help="已有分镜JSON（可选，跳过生成）")
+    parser.add_argument("--theme", default=None, help="按主题筛选（如 建筑地标、饮食、自然景观）")
     args = parser.parse_args()
 
     if args.storyboard:
@@ -384,11 +465,11 @@ def main():
         return
 
     if args.place:
-        run_pipeline_cli(args.place, args.map)
+        run_pipeline_cli(args.place, args.map, theme=args.theme)
     else:
         run_pipeline_interactive()
 
-def run_pipeline_cli(place_name: str, map_path_arg: str | None = None):
+def run_pipeline_cli(place_name: str, map_path_arg: str | None = None, theme: str | None = None):
     maps_dir = ROOT / "input" / "maps"
     contours_dir = ROOT / "input" / "contours"
     maps_dir.mkdir(parents=True, exist_ok=True)
@@ -413,7 +494,14 @@ def run_pipeline_cli(place_name: str, map_path_arg: str | None = None):
     raw = search_culture(place_name)
     if raw:
         culture_items = wiki_to_culture_items(place_name, raw)
-        log(f"找到 {len(culture_items)} 个元素")
+        culture_items = rank_culture_items(culture_items)
+        if theme:
+            filtered = [item for item in culture_items if theme.lower() in item.get("category", "").lower()]
+            if filtered:
+                culture_items = filtered
+                log(f"按主题「{theme}」筛选: {len(culture_items)} 个")
+        culture_items = culture_items[:5]
+        log(f"选中 {len(culture_items)} 个元素")
 
     log("生成分镜...")
     scenes = generate_storyboard_scenes(place_name, mask_path, culture_items)
