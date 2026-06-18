@@ -36,10 +36,12 @@ TRANSITION_DURATION = 0.3
 FINAL_FPS = 24
 
 # 元素生成
-ELEMENT_SIZE = 320
-ELEMENT_STEPS = 15
-NUM_CONTOUR_POINTS = 16
-CONTOUR_SCALE_RATIO = 0.55  # 轮廓占屏幕比例
+ELEMENT_SIZE = 320        # 角色元素尺寸
+OBJ_SIZE = 192            # 物件元素尺寸（小一点跑更快）
+OBJ_COUNT = 5             # 每场景生成的不同物件数（沿轮廓循环放置）
+ELEMENT_STEPS = 12
+NUM_CONTOUR_POINTS = 48   # 轮廓采样点数，越多形状越清晰
+CONTOUR_SCALE_RATIO = 0.55
 
 # ============================================================
 # Prompt 模板
