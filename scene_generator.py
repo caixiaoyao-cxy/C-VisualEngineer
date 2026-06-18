@@ -111,12 +111,12 @@ def compose_scene(pipe, storyboard: list[dict]):
         draw = ImageDraw.Draw(canvas)
 
         element_name = scene.get("culture_element", "local object")[:20]
+        place_name = scene.get("place_name", "")
 
         # ── 生成角色（中心） ──
+        char_prompt = f"character placeholder silhouette, {place_name} local, standing, simple outline, {element_name}"
         char_raw = generate_element(
-            pipe,
-            f"character placeholder silhouette, standing, simple outline, {element_name}",
-            (ELEMENT_SIZE, ELEMENT_SIZE),
+            pipe, char_prompt, (ELEMENT_SIZE, ELEMENT_SIZE),
             seed=scene.get("seed", 42),
         )
         char_no_bg = remove_bg(char_raw)
@@ -126,20 +126,32 @@ def compose_scene(pipe, storyboard: list[dict]):
         cpy = int(cy - c_size / 2)
         canvas.paste(char_resized, (cpx, cpy), char_resized)
 
-        # ── 生成 24 个独特物件（全为具体物件，不生成场景） ──
+        # ── 生成 24 个独特物件（关联地名 + 文化元素） ──
         obj_topics = [
-            f"{element_name}, hand-drawn icon", f"{element_name} illustration, sticker",
-            f"traditional {element_name}, sketch", f"small {element_name}, minimalist",
-            f"decorative {element_name}, line art", f"cute {element_name} mascot, doodle",
-            f"vintage {element_name} badge, emblem", f"flat {element_name} vector",
-            f"{element_name} with leaves, nature", f"ornamental {element_name}, pattern",
-            f"simple {element_name} symbol, logo", f"hand-drawn {element_name} flowers",
-            f"minimal {element_name} line drawing", f"watercolor {element_name} splash",
-            f"pencil sketch {element_name} study", f"folk art {element_name} motif",
-            f"tiny {element_name}, icon style", f"{element_name} bud, sprout, doodle",
-            f"round {element_name} badge, sticker", f"{element_name} silhouette, minimal",
-            f"stamped {element_name}, postmark style", f"woven {element_name} pattern",
-            f"folded {element_name}, origami style", f"baked {element_name}, clay charm",
+            f"{place_name} {element_name}, hand-drawn icon",
+            f"{place_name} {element_name} illustration, sticker",
+            f"traditional {place_name} {element_name}, sketch",
+            f"small {place_name} {element_name}, minimalist",
+            f"decorative {place_name} {element_name}, line art",
+            f"cute {place_name} {element_name} mascot, doodle",
+            f"vintage {place_name} badge, emblem",
+            f"flat {place_name} cultural vector",
+            f"{place_name} {element_name} with leaves",
+            f"ornamental {place_name} pattern",
+            f"simple {place_name} symbol, logo",
+            f"hand-drawn {place_name} flowers decor",
+            f"minimal {place_name} line drawing",
+            f"watercolor {place_name} splash",
+            f"pencil sketch {place_name} study",
+            f"folk art {place_name} motif",
+            f"tiny {place_name} icon style",
+            f"{place_name} cultural bud, sprout, doodle",
+            f"round {place_name} badge, sticker",
+            f"{place_name} silhouette, minimal",
+            f"stamped {place_name} postmark style",
+            f"woven {place_name} pattern",
+            f"folded {place_name} origami style",
+            f"baked {place_name} clay charm",
         ]
         obj_imgs = []
         for k in range(24):

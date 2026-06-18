@@ -194,7 +194,9 @@ def search_culture(place_name: str) -> list[dict]:
     ])
     if not results:
         log("  DDGS 无结果，尝试 Wikipedia...")
-        results = _wikipedia_search(f"{place_name}")
+        results = _wikipedia_search(f"{place_name}旅游景点美食")
+        if not results:
+            results = _wikipedia_search(f"{place_name}")
     if results:
         log(f"搜索到 {len(results)} 条文化结果")
     return results
@@ -377,6 +379,7 @@ def generate_storyboard_scenes(place_name: str, contour_map_path: str, culture_i
             "camera_movement": template["camera"],
             "duration_seconds": 9.0,
             "scene_prompt": generate_scene_prompt(place_name, item),
+            "place_name": place_name,
         })
     return scenes
 
