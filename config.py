@@ -56,14 +56,23 @@ FINAL_FPS = 24
 # ============================================================
 # Prompt 模板
 # ============================================================
-STYLE_PREFIX = "best quality, anime style, hand-drawn, fairy tale, vibrant, "
-STYLE_SUFFIX = ", cinematic lighting, high resolution"
+STYLE_PREFIX = (
+    "best quality, pencil sketch, watercolor, marker rendering, "
+    "low saturation, retro mint, macaron palette, sage green, beige, cream, cornflower blue, "
+    "rough sketchy lines, hand-drawn, paper texture, "
+)
+STYLE_SUFFIX = (
+    ", explosion composition, character at center, life objects surrounding radially, "
+    "geometric wireframe border, film edge frame, "
+    "decorative dots, cross stars, flowers, journal stickers, white highlights, water bloom"
+)
 
 NEGATIVE_PROMPT = (
     "lowres, bad anatomy, bad hands, text, error, missing fingers, "
     "extra digit, fewer digits, cropped, worst quality, low quality, "
     "normal quality, jpeg artifacts, signature, watermark, username, blurry, "
-    "realistic, photographic, 3d render"
+    "smooth, CG, digital art, photorealistic, vibrant, high contrast, "
+    "plain background, empty space, 3d render, photographic"
 )
 
 # ============================================================
