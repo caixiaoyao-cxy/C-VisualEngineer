@@ -7,14 +7,9 @@ import cv2
 import numpy as np
 import torch
 from diffusers import StableDiffusionControlNetPipeline, ControlNetModel, AutoencoderKL, DPMSolverMultistepScheduler
-from PIL import Image, ImageDraw
+from PIL import Image
 
 from config import *
-
-MACARON = [
-    (180, 210, 180), (230, 200, 170), (200, 190, 160),
-    (160, 180, 210), (210, 180, 190), (190, 200, 180),
-]
 
 def load_storyboard(path: str) -> list[dict]:
     with open(path, "r", encoding="utf-8") as f:
@@ -76,14 +71,13 @@ def sample_interior(mask: np.ndarray, n: int, margin: int = 15):
 
 def compose_scene(pipe, storyboard: list[dict]):
     W, H = SCENE_WIDTH, SCENE_HEIGHT
-    bg_color = (248, 245, 240)  # warm macaron
 
     for i, scene in enumerate(storyboard):
         print(f"\n[场景 {i+1}/{len(storyboard)}] {scene.get('description', '')}")
 
         contour_path = scene.get("contour_map")
         if not contour_path or not Path(contour_path).exists():
-            img = Image.new("RGB", (W, H), bg_color)
+            img = Image.new("RGB", (W, H), "white")
             img.save(SCENES_DIR / f"scene_{i+1:02d}_{scene.get('scene_id', '')}.png")
             continue
 
@@ -96,7 +90,7 @@ def compose_scene(pipe, storyboard: list[dict]):
         edges = cv2.Canny(binary, 100, 200)
         ys, xs = np.where(edges > 0)
         if len(xs) == 0:
-            Image.new("RGB", (W, H), bg_color).save(
+            Image.new("RGB", (W, H), "white").save(
                 SCENES_DIR / f"scene_{i+1:02d}_{scene.get('scene_id', '')}.png"
             )
             continue
@@ -107,8 +101,7 @@ def compose_scene(pipe, storyboard: list[dict]):
         cx, cy = int(xs.mean()), int(ys.mean())
         rnd = random.Random(scene.get("seed", 42))
 
-        canvas = Image.new("RGBA", (W, H), bg_color + (255,))
-        draw = ImageDraw.Draw(canvas)
+        canvas = Image.new("RGBA", (W, H), (255, 255, 255, 255))
 
         element_name = scene.get("culture_element", "local object")[:20]
         place_name = scene.get("place_name", "")
@@ -194,22 +187,9 @@ def compose_scene(pipe, storyboard: list[dict]):
                 obj_resized,
             )
 
-        # ── 散布十字星 ──
-        for _ in range(NUM_CONTOUR_POINTS * 2):
-            dx = rnd.randint(-18, 18) + int(W * 0.03)
-            dy = rnd.randint(-18, 18) + int(H * 0.03)
-            for bx, by in edge_pts:
-                sx, sy = bx + dx, by + dy
-                if 0 <= sx < W and 0 <= sy < H:
-                    ss = rnd.randint(2, 4)
-                    clr = MACARON[rnd.randint(0, len(MACARON) - 1)] + (160,)
-                    draw.line([sx - ss, sy, sx + ss, sy], fill=clr, width=1)
-                    draw.line([sx, sy - ss, sx, sy + ss], fill=clr, width=1)
-                    break
-
         out_path = SCENES_DIR / f"scene_{i+1:02d}_{scene.get('scene_id', '')}.png"
         canvas.convert("RGB").save(out_path)
-        print(f"  保存: {out_path} (6 场景贴片 + 1 角色 + 16 物件)")
+        print(f"  保存: {out_path} (1 角色 + 24 物件 + 轮廓密铺)")
 
 def main(args: list[str] | None = None):
     if args is None:
