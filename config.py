@@ -24,6 +24,7 @@ SCENE_VAE = "stabilityai/sd-vae-ft-mse"
 
 # ControlNet（Canny 边缘约束）
 CONTROLNET_MODEL = "lllyasviel/control_v11p_sd15_canny"
+CONTROLNET_SCALE = 0.65  # 轮廓引导强度（0-1），越低越自然
 
 # AnimateDiff 运动适配器
 MOTION_ADAPTER = "guoyww/animatediff-motion-adapter-v1-5-2"
@@ -62,7 +63,6 @@ NEGATIVE_PROMPT = (
     "lowres, bad anatomy, bad hands, text, error, missing fingers, "
     "extra digit, fewer digits, cropped, worst quality, low quality, "
     "normal quality, jpeg artifacts, signature, watermark, username, blurry, "
-    "landscape, sky, ground, grass, trees, building exterior, scenery, background, "
     "realistic, photographic, 3d render"
 )
 

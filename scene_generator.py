@@ -21,16 +21,23 @@ def load_storyboard(path: str) -> list[dict]:
         return json.load(f)
 
 def extract_contour(mask_path: str) -> Image.Image:
-    """地图填充图 → ControlNet 条件：白色区域=可生成，黑色=禁止，硬约束"""
+    """地图轮廓 → ControlNet 边缘条件：用轮廓线引导场景布局，人和物件沿轮廓自然分布"""
     img = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
-    _, filled = cv2.threshold(img, 127, 255, cv2.THRESH_BINARY)
-    colored = cv2.cvtColor(filled, cv2.COLOR_GRAY2RGB)
+    _, binary = cv2.threshold(img, 127, 255, cv2.THRESH_BINARY)
+    edges = cv2.Canny(binary, 100, 200)
+    kernel = np.ones((3, 3), np.uint8)
+    edges = cv2.dilate(edges, kernel, iterations=1)
+    colored = cv2.cvtColor(edges, cv2.COLOR_GRAY2RGB)
     return Image.fromarray(colored)
 
 def build_prompt(scene: dict) -> str:
-    element = scene.get("culture_element", "")
-    desc = scene.get("description", "")
-    core = (element or desc)[:12]
+    scene_prompt = scene.get("scene_prompt", "")
+    if scene_prompt:
+        core = scene_prompt
+    else:
+        element = scene.get("culture_element", "")
+        desc = scene.get("description", "")
+        core = (element or desc)[:12]
     return f"{STYLE_PREFIX}{core}, minimalist, flat illustration{STYLE_SUFFIX}"
 
 def load_pipeline():
@@ -82,14 +89,6 @@ def generate_scenes(pipe, storyboard: list[dict]):
             control_image = Image.new("RGB", (SCENE_WIDTH, SCENE_HEIGHT), color="white")
             print(f"  无轮廓约束，生成纯白条件图")
 
-        # 加载地图 mask 用于裁切（所有分支都执行）
-        mask_img = None
-        if contour_path and Path(contour_path).exists():
-            mask_img = cv2.imread(contour_path, cv2.IMREAD_GRAYSCALE)
-            _, mask_img = cv2.threshold(mask_img, 127, 255, cv2.THRESH_BINARY)
-        else:
-            mask_img = np.ones((SCENE_HEIGHT, SCENE_WIDTH), dtype=np.uint8) * 255
-
         # 多张变体
         variants = scene.get("variants", 1)
         for v in range(variants):
@@ -104,24 +103,16 @@ def generate_scenes(pipe, storyboard: list[dict]):
                     height=SCENE_HEIGHT,
                     num_inference_steps=SCENE_STEPS,
                     guidance_scale=SCENE_GUIDANCE,
-                    controlnet_conditioning_scale=0.9,  # 高权重 → 元素严格分布在地图区域内
+                    controlnet_conditioning_scale=CONTROLNET_SCALE,
                     generator=generator,
                     num_images_per_prompt=SCENE_BATCH_SIZE,
                 ).images[0]
-
-                # 用地图 mask 裁切：轮廓外变白色背景
-                result_np = np.array(result)
-                mask_resized = cv2.resize(mask_img, (result_np.shape[1], result_np.shape[0]))
-                mask_3ch = cv2.cvtColor(mask_resized, cv2.COLOR_GRAY2RGB) / 255.0
-                white_bg = np.ones_like(result_np) * 255
-                result_np = (result_np * mask_3ch + white_bg * (1 - mask_3ch)).astype(np.uint8)
-                result_masked = Image.fromarray(result_np)
 
                 out_name = f"scene_{i+1:02d}_{scene.get('scene_id', '')}"
                 if variants > 1:
                     out_name += f"_v{v+1}"
                 out_path = SCENES_DIR / f"{out_name}.png"
-                result_masked.save(out_path)
+                result.save(out_path)
                 print(f"  保存: {out_path}")
 
 def main(args: list[str] | None = None):

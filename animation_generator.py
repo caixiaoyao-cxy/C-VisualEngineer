@@ -8,7 +8,6 @@ import json
 import sys
 from pathlib import Path
 
-import cv2
 import numpy as np
 import torch
 from diffusers import (
@@ -26,9 +25,13 @@ def load_storyboard(path: str) -> list[dict]:
         return json.load(f)
 
 def build_prompt(scene: dict) -> str:
-    element = scene.get("culture_element", "")
-    desc = scene.get("description", "")
-    core = (element or desc)[:12]
+    scene_prompt = scene.get("scene_prompt", "")
+    if scene_prompt:
+        core = scene_prompt
+    else:
+        element = scene.get("culture_element", "")
+        desc = scene.get("description", "")
+        core = (element or desc)[:12]
     return f"{STYLE_PREFIX}{core}, minimalist, flat illustration{STYLE_SUFFIX}"
 
 def load_pipeline():
@@ -88,15 +91,6 @@ def generate_animations(pipe, storyboard: list[dict]):
             scene_img = Image.open(scene_img_path).resize((SCENE_WIDTH, SCENE_HEIGHT))
             print(f"  参考场景图: {scene_img_path.name}")
 
-        # 加载地图 mask 用于裁切
-        contour_path = scene.get("contour_map")
-        mask_img = None
-        if contour_path and Path(contour_path).exists():
-            mask_img = cv2.imread(contour_path, cv2.IMREAD_GRAYSCALE)
-            _, mask_img = cv2.threshold(mask_img, 127, 255, cv2.THRESH_BINARY)
-        else:
-            mask_img = np.ones((SCENE_HEIGHT, SCENE_WIDTH), dtype=np.uint8) * 255
-
         output = pipe(
             prompt=prompt,
             negative_prompt=NEGATIVE_PROMPT,
@@ -112,16 +106,9 @@ def generate_animations(pipe, storyboard: list[dict]):
         out_dir = ANIMATIONS_DIR / f"animation_{i+1:02d}_{scene_id}"
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        # 每一帧用地图 mask 裁切 + 保存
         for j, frame in enumerate(frames):
-            frame_np = np.array(frame)
-            mask_resized = cv2.resize(mask_img, (frame_np.shape[1], frame_np.shape[0]))
-            mask_3ch = cv2.cvtColor(mask_resized, cv2.COLOR_GRAY2RGB) / 255.0
-            white_bg = np.ones_like(frame_np) * 255
-            frame_np = (frame_np * mask_3ch + white_bg * (1 - mask_3ch)).astype(np.uint8)
-            Image.fromarray(frame_np).save(out_dir / f"frame_{j:04d}.png")
+            frame.save(out_dir / f"frame_{j:04d}.png")
 
-        # 导出 GIF
         gif_path = ANIMATIONS_DIR / f"animation_{i+1:02d}_{scene_id}.gif"
         export_to_gif(frames, str(gif_path))
         print(f"  保存: {gif_path} ({len(frames)} 帧)")

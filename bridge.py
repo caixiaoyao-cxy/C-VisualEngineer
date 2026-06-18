@@ -302,6 +302,23 @@ def interactive_select_items(all_items: list[dict], needed: int = 5) -> list[dic
         print("  输入无法识别，使用前 5 个")
         return rank_culture_items(all_items)[:needed]
 
+CATEGORY_VISUALS = {
+    "建筑地标": ["traditional architecture", "landmark", "stone bridge", "pagoda", "temple", "historical building"],
+    "饮食": ["street food", "local cuisine", "fresh ingredients", "market scene", "cooking steam"],
+    "非遗": ["traditional craft", "handmade art", "artisan workshop", "cultural heritage"],
+    "历史人物": ["historical figure", "ancient story", "traditional costume", "cultural scene"],
+    "民俗节庆": ["festival celebration", "folk performance", "lanterns", "dragon dance", "decorations"],
+    "自然景观": ["natural scenery", "mountains", "river", "green landscape", "local nature"],
+    "产业符号": ["cultural symbol", "local character", "community life", "iconic pattern"],
+}
+
+def generate_scene_prompt(place_name: str, item: dict) -> str:
+    category = item.get("category", "产业符号")
+    element = item.get("element_name", "")
+    visuals = CATEGORY_VISUALS.get(category, CATEGORY_VISUALS["产业符号"])
+    scenic = ", ".join(visuals[:3])
+    return f"{place_name} scenery, {scenic}, {element[:20]}"
+
 def generate_storyboard_scenes(place_name: str, contour_map_path: str, culture_items: list[dict] | None = None, num_scenes: int = 5) -> list[dict]:
     if culture_items:
         items = culture_items[:num_scenes]
@@ -343,6 +360,7 @@ def generate_storyboard_scenes(place_name: str, contour_map_path: str, culture_i
             "transition": template["transition"],
             "camera_movement": template["camera"],
             "duration_seconds": 9.0,
+            "scene_prompt": generate_scene_prompt(place_name, item),
         })
     return scenes
 
