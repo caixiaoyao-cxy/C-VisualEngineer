@@ -129,8 +129,10 @@ def _ddgs_search(queries: list[str], max_results: int = 5) -> list[dict]:
                         if title:
                             results.append({"title": title, "snippet": snippet})
                 if results:
+                    log(f"  DDGS 找到 {len(results)} 条: {query[:30]}")
                     return results
-            except Exception:
+            except Exception as e:
+                log(f"  DDGS 失败 ({query[:20]}): {e}")
                 continue
     except ImportError:
         pass
@@ -138,39 +140,47 @@ def _ddgs_search(queries: list[str], max_results: int = 5) -> list[dict]:
 
 def _wikipedia_search(query: str, max_results: int = 5) -> list[dict]:
     try:
-        import httpx
-        params = {
-            "action": "query", "list": "search",
-            "srsearch": query, "format": "json",
-            "srlimit": max_results, "utf8": 1,
-        }
-        resp = httpx.get(
-            "https://en.wikipedia.org/w/api.php",
-            params=params,
-            headers={"User-Agent": "C-VisualEngineer/1.0"},
-            timeout=15,
-        )
-        data = resp.json()
-        results = []
-        for item in data.get("query", {}).get("search", []):
-            results.append({
-                "title": item.get("title", ""),
-                "snippet": item.get("snippet", "").replace("<span class=\"searchmatch\">", "").replace("</span>", ""),
-            })
-        return results
-    except Exception:
-        return []
+        import requests as req
+    except ImportError:
+        try:
+            import httpx as req
+            req.get = req.get
+        except ImportError:
+            return []
+
+    urls = [
+        f"https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={urllib.parse.quote(query)}&format=json&srlimit={max_results}&utf8=1",
+        f"https://zh.wikipedia.org/w/api.php?action=query&list=search&srsearch={urllib.parse.quote(query)}&format=json&srlimit={max_results}&utf8=1",
+    ]
+    for url in urls:
+        try:
+            resp = req.get(url, headers={"User-Agent": "C-VisualEngineer/1.0"}, timeout=10)
+            log(f"  Wikipedia 状态码: {resp.status_code}, 长度: {len(resp.content)}")
+            if resp.status_code != 200:
+                continue
+            data = resp.json()
+            results = []
+            for item in data.get("query", {}).get("search", []):
+                results.append({
+                    "title": item.get("title", ""),
+                    "snippet": item.get("snippet", "").replace("<span class=\"searchmatch\">", "").replace("</span>", ""),
+                })
+            if results:
+                return results
+        except Exception as e:
+            log(f"  Wikipedia 请求失败: {e}")
+    return []
 
 def search_culture(place_name: str) -> list[dict]:
     results = _ddgs_search([
-        f"{place_name} 文化 历史 地标",
         f"{place_name} tourism landmark cuisine",
+        f"{place_name} 文化 地标",
     ])
     if not results:
-        results = _wikipedia_search(f"{place_name} culture history landmark")
-    if not results:
+        log("  DDGS 无结果，尝试 Wikipedia...")
         results = _wikipedia_search(f"{place_name}")
-    log(f"搜索到 {len(results)} 条文化结果")
+    if results:
+        log(f"搜索到 {len(results)} 条文化结果")
     return results
 
 def wiki_to_culture_items(place_name: str, wiki_results: list[dict]) -> list[dict]:
