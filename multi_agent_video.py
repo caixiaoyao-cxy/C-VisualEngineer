@@ -87,8 +87,28 @@ def main():
         inventory_path = None
         _search_ok = False
         _manual_map_path = None
+
+        # ── 第一步：搜地图 ──────────────────────────────────────────────
+        from mapgen.place.osm import get_osm_contour
+        print(f"\n[地图] 搜索「{args.place}」的地图轮廓...")
+        _osm_raw = get_osm_contour(args.place, {"output_width": 1024, "output_height": 1024, "zoom": 13})
+        if _osm_raw.get("fallback"):
+            print(f"  ⚠ 未找到「{args.place}」的地图轮廓。")
+            print("  如有当地地图图片（轮廓图，白底黑轮廓），输入文件路径（直接回车使用默认椭圆）：")
+            _user_map = input("  > ").strip()
+            if _user_map:
+                _p = Path(_user_map)
+                if _p.exists():
+                    _manual_map_path = _p
+                    print(f"  已使用地图: {_p.resolve()}")
+                else:
+                    print(f"  文件不存在，跳过地图")
+            if _manual_map_path is None:
+                _osm_raw = get_osm_contour("", {"output_width": 1024, "output_height": 1024, "zoom": 13})
+
+        # ── 第二步：搜文化元素 ──────────────────────────────────────────
         if settings.search_api_key:
-            print("  搜索中...")
+            print(f"\n[文化] 搜索「{args.place}」的文化元素...")
             try:
                 raw = search_culture_elements(places, {
                     "api_key": settings.search_api_key,
@@ -96,7 +116,6 @@ def main():
                 })
                 inv = build_culture_inventory(places, raw)
                 items = inv.get("inventory", [])
-                # 校验：结果必须包含地名关键词，排除无关结果
                 _place_lower = args.place.lower()
                 _relevant = [i for i in items if _place_lower in str(i.get("place_name", "")).lower() or _place_lower in str(i.get("element_name", "")).lower()]
                 if _relevant:
@@ -116,20 +135,8 @@ def main():
             print("  无 SEARCH_API_KEY, 跳过网络搜索")
 
         if not _search_ok:
-            print("\n  ⚠ 搜索不到该地点的文化信息，请手动提供以下内容。\n")
-            # 地图图片（可选）
-            _manual_map_path = None
-            print("  如有当地地图图片（地图轮廓图，白底黑轮廓），输入文件路径：")
-            _user_map = input("  > ").strip()
-            if _user_map:
-                _p = Path(_user_map)
-                if _p.exists():
-                    _manual_map_path = _p
-                    print(f"  已使用地图: {_p.resolve()}")
-                else:
-                    print(f"  文件不存在，跳过地图")
-            # 当地特色（必须）
-            print("  请输入当地特色（景点/食物/活动等，逗号分隔，至少一项）：")
+            print(f"\n  ⚠ 搜索不到「{args.place}」的文化信息，请手动输入当地特色。")
+            print("  请输入景点/食物/活动等，逗号分隔，至少一项：")
             _manual_input = input("  > ").strip()
             while not _manual_input:
                 print("  至少输入一项特色才能继续：")
@@ -209,10 +216,6 @@ def main():
 
         # ── Agent 2.5: 地图边框 —— 画面裁切到地图轮廓内 ────────────────
         print(f"\n[Agent 2.5] 地图轮廓构图...")
-        if _manual_map_path is None:
-            osm = get_osm_contour(args.place, {"output_width": 1024, "output_height": 1024, "zoom": 13})
-            if osm.get("fallback"):
-                print(f"  ⚠ 未找到「{args.place}」的地图轮廓，使用默认椭圆")
         if _manual_map_path:
             print(f"  手动地图: {_manual_map_path.resolve()}")
             _map_img = cv2.imread(str(_manual_map_path))
@@ -227,10 +230,10 @@ def main():
             else:
                 mask_raw = Image.new("L", (1024, 1024), 255)
         else:
-            mask_raw = Image.open(osm["mask_path"]).convert("L")
-            source = osm.get("source", "unknown")
+            mask_raw = Image.open(_osm_raw["mask_path"]).convert("L")
+            source = _osm_raw.get("source", "unknown")
             print(f"  地图来源: {source}")
-            if osm.get("fallback"):
+            if _osm_raw.get("fallback"):
                 print(f"  [WARN] 地图轮廓降级: {osm.get('fallback_reason', 'unknown')}")
 
         # 把 mask 缩放到铺满全画布，必要时横向/纵向拉长
