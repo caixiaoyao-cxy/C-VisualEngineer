@@ -86,6 +86,7 @@ def main():
 
         inventory_path = None
         _search_ok = False
+        _manual_map_path = None
         if settings.search_api_key:
             print("  搜索中...")
             try:
@@ -110,35 +111,49 @@ def main():
             print("  无 SEARCH_API_KEY, 跳过网络搜索")
 
         if not _search_ok:
-            print("\n  ⚠ 搜索不到该地点的文化信息。")
-            print("  请输入当地特色（景点/食物/活动等，逗号分隔），直接回车跳过：")
+            print("\n  ⚠ 搜索不到该地点的文化信息，请手动提供以下内容。\n")
+            # 地图图片（可选）
+            _manual_map_path = None
+            print("  如有当地地图图片（地图轮廓图，白底黑轮廓），输入文件路径：")
+            _user_map = input("  > ").strip()
+            if _user_map:
+                _p = Path(_user_map)
+                if _p.exists():
+                    _manual_map_path = _p
+                    print(f"  已使用地图: {_p.resolve()}")
+                else:
+                    print(f"  文件不存在，跳过地图")
+            # 当地特色（必须）
+            print("  请输入当地特色（景点/食物/活动等，逗号分隔，至少一项）：")
             _manual_input = input("  > ").strip()
-            if _manual_input:
-                _features = [f.strip() for f in _manual_input.split(",") if f.strip()]
-                _cat_map = {"塔":"建筑地标","寺":"建筑地标","庙":"建筑地标","楼":"建筑地标","街":"建筑地标","桥":"建筑地标",
-                            "湖":"自然景观","山":"自然景观","河":"自然景观","江":"自然景观","海":"自然景观","岛":"自然景观",
-                            "吃":"饮食","食":"饮食","菜":"饮食","茶":"饮食","酒":"饮食","小吃":"饮食",
-                            "节":"民俗节庆","庆":"民俗节庆","会":"民俗节庆"}
-                def _guess_cat(n):
-                    for kw, cat in _cat_map.items():
-                        if kw in n: return cat
-                    return "建筑地标"
-                _manual_items = []
-                for feat in _features[:4]:
-                    _manual_items.append({
-                        "place_name": args.place,
-                        "element_name": feat,
-                        "category": _guess_cat(feat),
-                        "summary": f"{args.place}的{feat}",
-                        "visual_keywords": [feat],
-                        "usage_suggestions": [f"参观{feat}"],
-                        "confidence": 1.0,
-                        "sources": [],
-                    })
-                inv_path = out_dir / f"{args.place.lower()}_inventory.json"
-                inv_path.write_text(json.dumps({"inventory": _manual_items}, ensure_ascii=False, indent=2), encoding="utf-8")
-                inventory_path = inv_path
-                print(f"  已录入 {len(_manual_items)} 项文化特色")
+            while not _manual_input:
+                print("  至少输入一项特色才能继续：")
+                _manual_input = input("  > ").strip()
+            _features = [f.strip() for f in _manual_input.split(",") if f.strip()]
+            _cat_map = {"塔":"建筑地标","寺":"建筑地标","庙":"建筑地标","楼":"建筑地标","街":"建筑地标","桥":"建筑地标",
+                        "湖":"自然景观","山":"自然景观","河":"自然景观","江":"自然景观","海":"自然景观","岛":"自然景观",
+                        "吃":"饮食","食":"饮食","菜":"饮食","茶":"饮食","酒":"饮食","小吃":"饮食",
+                        "节":"民俗节庆","庆":"民俗节庆","会":"民俗节庆"}
+            def _guess_cat(n):
+                for kw, cat in _cat_map.items():
+                    if kw in n: return cat
+                return "建筑地标"
+            _manual_items = []
+            for feat in _features[:4]:
+                _manual_items.append({
+                    "place_name": args.place,
+                    "element_name": feat,
+                    "category": _guess_cat(feat),
+                    "summary": f"{args.place}的{feat}",
+                    "visual_keywords": [feat],
+                    "usage_suggestions": [f"参观{feat}"],
+                    "confidence": 1.0,
+                    "sources": [],
+                })
+            inv_path = out_dir / f"{args.place.lower()}_inventory.json"
+            inv_path.write_text(json.dumps({"inventory": _manual_items}, ensure_ascii=False, indent=2), encoding="utf-8")
+            inventory_path = inv_path
+            print(f"  已录入 {len(_manual_items)} 项文化特色")
 
         print("  生成分镜 (4 场景)...")
         sb = generate_storyboard(
@@ -189,18 +204,10 @@ def main():
 
         # ── Agent 2.5: 地图边框 —— 画面裁切到地图轮廓内 ────────────────
         print(f"\n[Agent 2.5] 地图轮廓构图...")
-        _manual_map_path = None
-        osm = get_osm_contour(args.place, {"output_width": 1024, "output_height": 1024, "zoom": 13})
-        if osm.get("fallback"):
-            print(f"  ⚠ 未找到「{args.place}」的地图轮廓。")
-            print("  如有当地地图图片，请输入文件路径（直接回车跳过，将使用默认椭圆）：")
-            _user_map = input("  > ").strip()
-            if _user_map:
-                _p = Path(_user_map)
-                if _p.exists():
-                    _manual_map_path = _p
-                else:
-                    print(f"  文件不存在，跳过")
+        if _manual_map_path is None:
+            osm = get_osm_contour(args.place, {"output_width": 1024, "output_height": 1024, "zoom": 13})
+            if osm.get("fallback"):
+                print(f"  ⚠ 未找到「{args.place}」的地图轮廓，使用默认椭圆")
         if _manual_map_path:
             print(f"  手动地图: {_manual_map_path.resolve()}")
             _map_img = cv2.imread(str(_manual_map_path))
