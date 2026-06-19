@@ -336,35 +336,20 @@ def main():
         mask_roomy.save(str(mask_path))
         print(f"  地图轮廓构图完成: {len(scene_images)} 张 + 边框overlay + mask")
 
-        # ── 生成开场总览地图：地图轮廓 + 各场景编号标记 ──────────────
+        # ── 生成开场总览地图：地图轮廓 + 地名标题 ─────────────────────
         print("  生成开场总览地图...")
         intro_canvas = Image.new("RGBA", (1024, 1024), (*bg_color, 255))
         intro_canvas = Image.alpha_composite(intro_canvas, border_overlay)
         draw_intro = ImageDraw.Draw(intro_canvas)
-        # 在 mask 区域内散射 4 个标记点
-        _marker_positions = []
-        arr_intro = np.array(mask_roomy)
-        ys_intro, xs_intro = np.where(arr_intro > 80)
-        if len(ys_intro) > 100:
-            import random as _rnd
-            _rnd.seed(42)
-            _pts = list(zip(xs_intro.tolist(), ys_intro.tolist()))
-            _chosen = _rnd.sample(_pts, min(200, len(_pts)))
-            # 分 4 组取质心
-            _groups = {k: [] for k in range(4)}
-            for idx, (px, py) in enumerate(_chosen):
-                _groups[idx % 4].append((px, py))
-            for g in range(4):
-                gx = int(sum(p[0] for p in _groups[g]) / len(_groups[g]))
-                gy = int(sum(p[1] for p in _groups[g]) / len(_groups[g]))
-                _marker_positions.append((gx, gy))
-        else:
-            _marker_positions = [(200, 200), (400, 300), (600, 500), (800, 700)]
-        # 绘制圆+编号
-        _marker_color = (220, 60, 60)
-        for mi, (mx, my) in enumerate(_marker_positions):
-            draw_intro.ellipse([mx - 18, my - 18, mx + 18, my + 18], fill=_marker_color, outline=(255, 255, 255), width=3)
-            draw_intro.text((mx - 7, my - 11), str(mi + 1), fill=(255, 255, 255), font=None)
+        # 标题：地名居中
+        _title_text = f"探索 {args.place}"
+        try:
+            font_large = ImageFont.truetype("NotoSansSC-Regular.ttf", 56)
+        except Exception:
+            font_large = ImageFont.load_default()
+        _bbox = draw_intro.textbbox((0, 0), _title_text, font=font_large)
+        _tw = _bbox[2] - _bbox[0]
+        draw_intro.text(((1024 - _tw) / 2, 460), _title_text, fill=(50, 55, 70), font=font_large)
         intro_map_path = out_dir / f"{args.place.lower()}_intro_map.png"
         intro_canvas.convert("RGB").save(str(intro_map_path))
 
