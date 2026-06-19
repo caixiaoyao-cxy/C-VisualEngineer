@@ -309,6 +309,12 @@ def main():
     # ── Agent 5: TTS 配音 + 字幕 (逐场景 3s) ─────────────────────
     print(f"\n[Agent 5] TTS 配音 + 字幕 (逐场景 3s)")
     narration_list = [s.get("narration", "") for s in scenes]
+    # 去重：重复的解说用场景标题替代
+    _seen_narr: set[str] = set()
+    for i, n in enumerate(narration_list):
+        if not n.strip() or n in _seen_narr:
+            narration_list[i] = f"这是{scenes[i]['title']}。"
+        _seen_narr.add(narration_list[i])
     if any(narration_list):
         import subprocess as _sp
         per_scene_sec = 3.0

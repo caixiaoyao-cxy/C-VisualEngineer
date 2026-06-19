@@ -269,6 +269,51 @@ def generate_storyboard_fallback(
     shot_types = ["开场", "文化展示", "人物行动", "过渡", "结尾"]
     transitions = ["地图线条淡入", "镜头轻推", "沿路线滑动", "柔和叠化", "地图点位汇聚"]
 
+    # 按类别分配多样化解说模板，确保不重复
+    _narration_pool: dict[str, list[str]] = {
+        "饮食": [
+            f"来{place_name}，尝一口{{clean}}。",
+            f"舌尖上的{place_name}，少不了{{clean}}。",
+            f"闻香识{place_name}，先来一份{{clean}}。",
+            f"老味道：{place_name}的{{clean}}。",
+        ],
+        "建筑地标": [
+            f"抬头望去，{{clean}}已伫立百年。",
+            f"走近{{clean}}，触摸历史的温度。",
+            f"这座{{clean}}，见证了{place_name}的变迁。",
+            f"穿过街巷，{{clean}}就在眼前。",
+        ],
+        "民俗节庆": [
+            f"热闹的{{clean}}，人人都在欢笑。",
+            f"锣鼓喧天，{place_name}的{{clean}}开始了。",
+            f"跟着人群走进{{clean}}，感受最地道的{place_name}。",
+            f"灯火璀璨，{{clean}}正热闹。",
+        ],
+        "自然景观": [
+            f"深呼吸，{place_name}的{{clean}}让人心静。",
+            f"站在{{clean}}前，满眼都是{place_name}的山水。",
+            f"微风拂面，{{clean}}风光正好。",
+            f"远离喧嚣，{place_name}的{{clean}}美得像画。",
+        ],
+    }
+    _cat_defaults = [
+        f"这是{place_name}独有的{{clean}}。",
+            f"来到{place_name}，一定要看{{clean}}。",
+        f"听当地人讲讲{{clean}}的故事。",
+        f"用心感受，{place_name}的{{clean}}。",
+        f"每一处{{clean}}，都是{place_name}的印记。",
+    ]
+    _used_templates: set[int] = set()
+
+    def _pick_narration_tmpl(cat: str) -> str:
+        pool = _narration_pool.get(cat, _cat_defaults)
+        available = [i for i in range(len(pool)) if i not in _used_templates]
+        if not available:
+            available = list(range(len(pool)))
+        idx = available[0]
+        _used_templates.add(idx)
+        return pool[idx]
+
     for index, item in enumerate(inventory_items[:num_scenes], start=1):
         element = CultureElementRef.from_inventory_item(item)
         keywords = "、".join(element.visual_keywords[:3]) or element.element_name
@@ -291,26 +336,24 @@ def generate_storyboard_fallback(
             action = f"主角站在地图中央，回顾走过的所有点位，{clean}在身旁闪烁，轻轻挥手告别，所有文化元素缓缓旋转汇聚。"
             visual = f"一张{style}的{place_name}地图上，所有文化点位依次亮起，{clean}与{keywords}汇聚成完整的地方文化图景，角色站在地图中心。"
             narration = f"走到终点，{clean}在眼前闪耀。"
-        elif cat == "饮食":
-            action = f"主角走到{clean}摊位前，好奇地俯身观察桌上的{keywords}，伸手拿起一件仔细端详，露出惊喜的表情。"
-            visual = f"一张{style}的{place_name}地图中，{clean}场景：{keywords}，摊位冒着热气，角色正在摊位前与食物互动。"
-            narration = f"来{place_name}，尝一口{clean}。"
-        elif cat == "建筑地标":
-            action = f"主角站在{clean}前，仰头欣赏建筑细节，沿着建筑边缘缓步走动，手指轻轻划过墙面纹理。"
-            visual = f"一张{style}的{place_name}地图中，{clean}场景：{keywords}，古建筑与街巷肌理清晰可见，角色在建筑前漫步。"
-            narration = f"抬头望去，{clean}已伫立百年。"
-        elif cat == "民俗节庆":
-            action = f"主角融入{clean}的人群中，跟着节拍轻轻摆动身体，好奇地看着周围的{keywords}，脸上带着开心的笑容。"
-            visual = f"一张{style}的{place_name}地图中，{clean}场景：{keywords}，灯彩与人群热闹非凡，角色融入节日氛围。"
-            narration = f"热闹的{clean}，人人都在欢笑。"
-        elif cat == "自然景观":
-            action = f"主角站在{clean}的观景位置，双手扶栏远眺，深呼吸感受自然，微风吹动发梢和衣角。"
-            visual = f"一张{style}的{place_name}地图中，{clean}场景：{keywords}，山水与植被环绕，角色在自然中放松身心。"
-            narration = f"深呼吸，{place_name}的{clean}让人心静。"
         else:
-            action = f"主角走到{clean}点位前，停下观察，伸手触摸文化元素，与之产生简单互动。"
-            visual = f"一张{style}的{place_name}地图中，{clean}场景：{keywords}，文化元素在地图轮廓内展现，角色正在互动。"
-            narration = f"这是{place_name}独有的{clean}。"
+            tmpl = _pick_narration_tmpl(cat)
+            narration = tmpl.replace("{clean}", clean)
+            if cat == "饮食":
+                action = f"主角走到{clean}摊位前，好奇地俯身观察桌上的{keywords}，伸手拿起一件仔细端详，露出惊喜的表情。"
+                visual = f"一张{style}的{place_name}地图中，{clean}场景：{keywords}，摊位冒着热气，角色正在摊位前与食物互动。"
+            elif cat == "建筑地标":
+                action = f"主角站在{clean}前，仰头欣赏建筑细节，沿着建筑边缘缓步走动，手指轻轻划过墙面纹理。"
+                visual = f"一张{style}的{place_name}地图中，{clean}场景：{keywords}，古建筑与街巷肌理清晰可见，角色在建筑前漫步。"
+            elif cat == "民俗节庆":
+                action = f"主角融入{clean}的人群中，跟着节拍轻轻摆动身体，好奇地看着周围的{keywords}，脸上带着开心的笑容。"
+                visual = f"一张{style}的{place_name}地图中，{clean}场景：{keywords}，灯彩与人群热闹非凡，角色融入节日氛围。"
+            elif cat == "自然景观":
+                action = f"主角站在{clean}的观景位置，双手扶栏远眺，深呼吸感受自然，微风吹动发梢和衣角。"
+                visual = f"一张{style}的{place_name}地图中，{clean}场景：{keywords}，山水与植被环绕，角色在自然中放松身心。"
+            else:
+                action = f"主角走到{clean}点位前，停下观察，伸手触摸文化元素，与之产生简单互动。"
+                visual = f"一张{style}的{place_name}地图中，{clean}场景：{keywords}，文化元素在地图轮廓内展现，角色正在互动。"
 
         scenes.append(
             StoryboardScene(
