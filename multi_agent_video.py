@@ -49,12 +49,17 @@ from mapgen.media.video import mux_audio, burn_subtitle
 
 
 def main():
-    parser = argparse.ArgumentParser(description="B 分支风格文化手账视频生成器")
-    parser.add_argument("place", help="地名（如 Hangzhou / Hong Kong / Tokyo）")
+    parser = argparse.ArgumentParser(description="多智能体文化手账视频生成器")
+    parser.add_argument("place", nargs="?", help="地名（如 Hong Kong / Tokyo / Paris / Kyoto），不填则交互式输入")
     parser.add_argument("--draw-provider", default="", help="绘图 API: baidu 或 alibaba")
     parser.add_argument("--output-dir", default="output", help="输出目录")
+    parser.add_argument("--skip-draw", action="store_true", help="跳过绘图步骤（使用已有贴纸）")
     parser.add_argument("--layout", help="已有 layout.json 路径（跳过 1-3）")
     args = parser.parse_args()
+    if not args.place:
+        args.place = input("请输入地名 (如 Hong Kong / Tokyo / Paris / Kyoto): ").strip()
+        while not args.place:
+            args.place = input("地名不能为空，请重新输入: ").strip()
 
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
