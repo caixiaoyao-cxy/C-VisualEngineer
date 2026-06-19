@@ -336,11 +336,58 @@ def main():
         mask_roomy.save(str(mask_path))
         print(f"  地图轮廓构图完成: {len(scene_images)} 张 + 边框overlay + mask")
 
-        # ── 生成开场总览地图：地图轮廓 + 地名标题 ─────────────────────
+        # ── 生成开场总览地图：地图轮廓 + 标注景点位置 ──────────────────
         print("  生成开场总览地图...")
         intro_canvas = Image.new("RGBA", (1024, 1024), (*bg_color, 255))
         intro_canvas = Image.alpha_composite(intro_canvas, border_overlay)
         draw_intro = ImageDraw.Draw(intro_canvas)
+        # 用 Nominatim 搜索地名获取经纬度范围
+        _place_bounds = {}
+        try:
+            import requests as _req
+            import urllib.parse
+            _geo_url = f"https://nominatim.openstreetmap.org/search?q={urllib.parse.quote(args.place)}&format=json&limit=1"
+            _geo_r = _req.get(_geo_url, headers={"User-Agent": "Map2Video/0.1"}, timeout=10)
+            if _geo_r.status_code == 200 and _geo_r.json():
+                _geo_d = _geo_r.json()[0]
+                _bb = _geo_d.get("boundingbox")
+                if _bb and len(_bb) == 4:
+                    _place_bounds = {
+                        "min_lat": float(_bb[0]), "max_lat": float(_bb[1]),
+                        "min_lon": float(_bb[2]), "max_lon": float(_bb[3]),
+                        "center_lat": float(_geo_d["lat"]),
+                        "center_lon": float(_geo_d["lon"]),
+                    }
+        except Exception:
+            pass
+        # 为每个场景标注景点位置（intro 本身是场景 0，真正场景从 1 开始）
+        _marker_color = (220, 60, 60)
+        _label_color = (50, 55, 70)
+        for _si, _scene in enumerate(scene_images, start=1):
+            _elem_name = _scene.get("theme", "").replace(f"{args.place}·", "").strip()
+            if not _elem_name:
+                continue
+            _coords = {}
+            try:
+                _eq = urllib.parse.quote(f"{_elem_name} {args.place}")
+                _er = _req.get(
+                    f"https://nominatim.openstreetmap.org/search?q={_eq}&format=json&limit=1",
+                    headers={"User-Agent": "Map2Video/0.1"}, timeout=10
+                )
+                if _er.status_code == 200 and _er.json():
+                    _ed = _er.json()[0]
+                    _coords = {"lat": float(_ed["lat"]), "lon": float(_ed["lon"])}
+            except Exception:
+                pass
+            if _coords and _place_bounds:
+                _px = int((_coords["lon"] - _place_bounds["min_lon"]) / (_place_bounds["max_lon"] - _place_bounds["min_lon"]) * 1024) if _place_bounds["max_lon"] != _place_bounds["min_lon"] else 512
+                _py = int((_place_bounds["max_lat"] - _coords["lat"]) / (_place_bounds["max_lat"] - _place_bounds["min_lat"]) * 1024) if _place_bounds["max_lat"] != _place_bounds["min_lat"] else 512
+                _px = max(30, min(994, _px))
+                _py = max(30, min(994, _py))
+                draw_intro.ellipse([_px - 16, _py - 16, _px + 16, _py + 16], fill=_marker_color, outline=(255, 255, 255), width=3)
+                draw_intro.text((_px - 6, _py - 10), str(_si), fill=(255, 255, 255), font=None)
+                _label = _elem_name[:10]
+                draw_intro.text((_px + 22, _py - 8), _label, fill=_label_color, font=None)
         # 标题：地名居中
         _title_text = f"探索 {args.place}"
         try:
@@ -349,7 +396,7 @@ def main():
             font_large = ImageFont.load_default()
         _bbox = draw_intro.textbbox((0, 0), _title_text, font=font_large)
         _tw = _bbox[2] - _bbox[0]
-        draw_intro.text(((1024 - _tw) / 2, 460), _title_text, fill=(50, 55, 70), font=font_large)
+        draw_intro.text(((1024 - _tw) / 2, 30), _title_text, fill=(50, 55, 70), font=font_large)
         intro_map_path = out_dir / f"{args.place.lower()}_intro_map.png"
         intro_canvas.convert("RGB").save(str(intro_map_path))
 
