@@ -1,0 +1,28 @@
+[project]
+name = "map2video"
+version = "0.1.0"
+description = "FastMCP servers for map contour extraction, place recognition, culture element RAG, and map-to-video workflows."
+authors = [{ name = "pankeyi88" }]
+requires-python = ">=3.10"
+dependencies = [
+    "fastmcp>=2.0.0",
+    "opencv-python>=4.9.0",
+    "numpy>=1.24.0",
+    "pydantic>=2.6.0",
+    "httpx>=0.27.0",
+    "Pillow>=10.0.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0"]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
