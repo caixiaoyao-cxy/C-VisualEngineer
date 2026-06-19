@@ -96,15 +96,20 @@ def main():
                 })
                 inv = build_culture_inventory(places, raw)
                 items = inv.get("inventory", [])
-                if items:
-                    print(f"  文化元素: {len(items)} 项")
+                # 校验：结果必须包含地名关键词，排除无关结果
+                _place_lower = args.place.lower()
+                _relevant = [i for i in items if _place_lower in str(i.get("place_name", "")).lower() or _place_lower in str(i.get("element_name", "")).lower()]
+                if _relevant:
+                    print(f"  文化元素: {len(_relevant)} 项")
                     inv_path = out_dir / f"{args.place.lower()}_inventory.json"
                     inv_path.write_text(
-                        json.dumps({"inventory": items}, ensure_ascii=False, indent=2),
+                        json.dumps({"inventory": _relevant}, ensure_ascii=False, indent=2),
                         encoding="utf-8",
                     )
                     inventory_path = inv_path
                     _search_ok = True
+                else:
+                    print("  搜索到的内容与地名无关")
             except (SearchConfigurationError, Exception) as e:
                 print(f"  搜索失败 ({e})")
         else:
