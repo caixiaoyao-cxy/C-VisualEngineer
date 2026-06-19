@@ -29,13 +29,9 @@ from mapgen.config import load_dotenv, get_settings
 load_dotenv()
 
 import os as _os
-_os.environ.setdefault("ALIBABA_API_KEY", "sk-ws-H.RPHLIDI.NCVf.MEUCIQD7GLYEIQ-oSkjfkDm50hy4LtccFasU16uoRHlCMZY-IgIgMzhC270eqCXPvTQXyklEBcy1AHAW959DFkARgpYxMlY")
-_os.environ.setdefault("SEARCH_API_KEY", "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")
 _os.environ.setdefault("SEARCH_PROVIDER", "tavily")
-_os.environ.setdefault("OPENAI_API_KEY", "sk-ws-H.RPHLIDI.NCVf.MEUCIQD7GLYEIQ-oSkjfkDm50hy4LtccFasU16uoRHlCMZY-IgIgMzhC270eqCXPvTQXyklEBcy1AHAW959DFkARgpYxMlY")
 _os.environ.setdefault("OPENAI_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
 _os.environ.setdefault("OPENAI_TEXT_MODEL", "qwen-turbo")
-_os.environ.setdefault("DASHSCOPE_API_KEY", "sk-ws-H.RPIDYEX.4ce0.MEQCIGYL0pxY5Fq5cq_D0Es2nChOZcajNqrUVRpK14sHpvUgAiAeLmnzl9tTydqb_JgkxSOPYHexHktV-rOWzwqGeyTUDg")
 
 from mapgen.rag.search import search_culture_elements, SearchConfigurationError
 from mapgen.rag.inventory import build_culture_inventory
@@ -336,16 +332,14 @@ def main():
         mask_roomy.save(str(mask_path))
         print(f"  地图轮廓构图完成: {len(scene_images)} 张 + 边框overlay + mask")
 
-        # ── 生成开场总览地图：地图轮廓 + 标注景点位置 ──────────────────
-        print("  生成开场总览地图...")
-        intro_canvas = Image.new("RGBA", (1024, 1024), (*bg_color, 255))
-        intro_canvas = Image.alpha_composite(intro_canvas, border_overlay)
-        draw_intro = ImageDraw.Draw(intro_canvas)
-        # 用 Nominatim 搜索地名获取经纬度范围
+        # ── 生成开场总览地图：地图轮廓 + 倒水滴定位点（可震动）───────────
+        print("  生成开场总览地图（倒水滴定位点 + 上下震动）...")
+        # 先收集每个景点的名称和像素坐标
+        import requests as _req
+        import urllib.parse
+        _marker_infos = []  # [{px, py, label, is_geo}, ...]
         _place_bounds = {}
         try:
-            import requests as _req
-            import urllib.parse
             _geo_url = f"https://nominatim.openstreetmap.org/search?q={urllib.parse.quote(args.place)}&format=json&limit=1"
             _geo_r = _req.get(_geo_url, headers={"User-Agent": "Map2Video/0.1"}, timeout=10)
             if _geo_r.status_code == 200 and _geo_r.json():
@@ -355,12 +349,9 @@ def main():
                     _place_bounds = {
                         "min_lat": float(_bb[0]), "max_lat": float(_bb[1]),
                         "min_lon": float(_bb[2]), "max_lon": float(_bb[3]),
-                        "center_lat": float(_geo_d["lat"]),
-                        "center_lon": float(_geo_d["lon"]),
                     }
         except Exception:
             pass
-        # 为每个场景标注景点位置（intro 本身是场景 0，真正场景从 1 开始）
         _marker_color = (220, 60, 60)
         _label_color = (50, 55, 70)
         for _si, _scene in enumerate(scene_images, start=1):
@@ -380,46 +371,78 @@ def main():
             except Exception:
                 pass
             if _coords and _place_bounds:
-                _px = int((_coords["lon"] - _place_bounds["min_lon"]) / (_place_bounds["max_lon"] - _place_bounds["min_lon"]) * 1024) if _place_bounds["max_lon"] != _place_bounds["min_lon"] else 512
-                _py = int((_place_bounds["max_lat"] - _coords["lat"]) / (_place_bounds["max_lat"] - _place_bounds["min_lat"]) * 1024) if _place_bounds["max_lat"] != _place_bounds["min_lat"] else 512
-                _px = max(30, min(994, _px))
-                _py = max(30, min(994, _py))
-                draw_intro.ellipse([_px - 16, _py - 16, _px + 16, _py + 16], fill=_marker_color, outline=(255, 255, 255), width=3)
-                draw_intro.text((_px - 6, _py - 10), str(_si), fill=(255, 255, 255), font=None)
-                _label = _elem_name[:10]
-                draw_intro.text((_px + 22, _py - 8), _label, fill=_label_color, font=None)
+                _blon = _place_bounds["max_lon"] - _place_bounds["min_lon"]
+                _blat = _place_bounds["max_lat"] - _place_bounds["min_lat"]
+                _px = int((_coords["lon"] - _place_bounds["min_lon"]) / _blon * 1024) if _blon else 512
+                _py = int((_place_bounds["max_lat"] - _coords["lat"]) / _blat * 1024) if _blat else 512
+                _px = max(40, min(984, _px))
+                _py = max(40, min(984, _py))
+                _marker_infos.append({"px": _px, "py": _py, "label": _elem_name[:10], "num": _si, "geo": True})
             else:
-                # 搜不到坐标 → 在地图外画空心圈
                 _ring_x = 50 + (_si - 1) * 220
-                _ring_y = 980
-                draw_intro.ellipse([_ring_x - 14, _ring_y - 14, _ring_x + 14, _ring_y + 14], fill=None, outline=_marker_color, width=3)
-                draw_intro.text((_ring_x - 6, _ring_y - 10), str(_si), fill=_marker_color, font=None)
-                _label = _elem_name[:10]
-                draw_intro.text((_ring_x - 20, _ring_y + 20), _label, fill=_label_color, font=None)
-        # 标题：地名居中
-        _title_text = f"探索 {args.place}"
-        try:
-            font_large = ImageFont.truetype("NotoSansSC-Regular.ttf", 56)
-        except Exception:
-            font_large = ImageFont.load_default()
-        _bbox = draw_intro.textbbox((0, 0), _title_text, font=font_large)
-        _tw = _bbox[2] - _bbox[0]
-        draw_intro.text(((1024 - _tw) / 2, 30), _title_text, fill=(50, 55, 70), font=font_large)
-        intro_map_path = out_dir / f"{args.place.lower()}_intro_map.png"
-        intro_canvas.convert("RGB").save(str(intro_map_path))
+                _marker_infos.append({"px": _ring_x, "py": 980, "label": _elem_name[:10], "num": _si, "geo": False})
+
+        def _draw_teardrop(draw, cx, cy, size, fill, outline, num):
+            """画倒水滴定位点"""
+            hr = size // 2
+            # 圆头
+            draw.ellipse([cx - hr, cy - hr, cx + hr, cy + hr], fill=fill, outline=outline, width=2)
+            # 尖底（三角形）
+            tip = cy + size
+            draw.polygon([(cx - hr // 3, cy + hr // 2), (cx + hr // 3, cy + hr // 2), (cx, tip)], fill=fill, outline=outline, width=2)
+            # 编号
+            draw.text((cx - 5, cy - 7), str(num), fill=(255, 255, 255), font=None)
+
+        # 生成带震动的逐帧动画
+        _fps = 10
+        _frame_count = _fps * 3  # 3 秒
+        _frames_dir = out_dir / "_intro_frames"
+        _frames_dir.mkdir(parents=True, exist_ok=True)
+        for _fi in range(_frame_count):
+            _frame = Image.new("RGBA", (1024, 1024), (*bg_color, 255))
+            _frame = Image.alpha_composite(_frame, border_overlay)
+            _draw_f = ImageDraw.Draw(_frame)
+            # 标题
+            _title_text = f"探索 {args.place}"
+            try:
+                _font = ImageFont.truetype("NotoSansSC-Regular.ttf", 56) if _fi == 0 else font_large
+            except Exception:
+                _font = ImageFont.load_default()
+            if _fi == 0:
+                try:
+                    font_large = ImageFont.truetype("NotoSansSC-Regular.ttf", 56)
+                except Exception:
+                    font_large = ImageFont.load_default()
+                _font = font_large
+            _bbox = _draw_f.textbbox((0, 0), _title_text, font=_font)
+            _draw_f.text(((1024 - (_bbox[2] - _bbox[0])) / 2, 30), _title_text, fill=(50, 55, 70), font=_font)
+            # 标点（震动）
+            _bounce = math.sin(_fi / _fps * math.pi * 2) * 6 if _fi > 0 else 0
+            for _mi in _marker_infos:
+                if _mi["geo"]:
+                    _dy = int(_bounce)
+                    _draw_teardrop(_draw_f, _mi["px"], _mi["py"] + _dy, 24, _marker_color, (255, 255, 255), _mi["num"])
+                    _draw_f.text((_mi["px"] + 18, _mi["py"] + _dy - 6), _mi["label"], fill=_label_color, font=None)
+                else:
+                    _draw_f.ellipse([_mi["px"] - 14, _mi["py"] - 14, _mi["px"] + 14, _mi["py"] + 14], fill=None, outline=_marker_color, width=3)
+                    _draw_f.text((_mi["px"] - 6, _mi["py"] - 10), str(_mi["num"]), fill=_marker_color, font=None)
+                    _draw_f.text((_mi["px"] - 20, _mi["py"] + 20), _mi["label"], fill=_label_color, font=None)
+            _frame.convert("RGB").save(str(_frames_dir / f"frame_{_fi:03d}.png"))
+        # 合成为视频 clip
+        _intro_clip = out_dir / "intro_clip.mp4"
+        _sp.run([
+            "ffmpeg", "-y", "-framerate", str(_fps),
+            "-i", str(_frames_dir / "frame_%03d.png"),
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            str(_intro_clip)
+        ], check=True, capture_output=True)
+        # 清理帧
+        import shutil
+        shutil.rmtree(str(_frames_dir), ignore_errors=True)
+        print(f"  开场视频已生成: {_intro_clip}")
 
         # ── Agent 3: 排版 ────────────────────────────────────────────
-        print(f"\n[Agent 3] 组装场景列表（含开场地图）")
-        # 开场总览地图插到 scene_images 最前面
-        scene_images_with_intro = [
-            {
-                "theme": f"{args.place}全览",
-                "path": str(intro_map_path),
-                "prompt": f"{args.place}地图全览，标记了全部文化景点位置",
-                "zoom_start": 1.0,
-                "zoom_end": 1.0,
-            }
-        ] + scene_images
+        print(f"\n[Agent 3] 组装场景列表")
         layout_data = {
             "place": args.place,
             "canvas_width": 1024,
@@ -432,10 +455,10 @@ def main():
                     "theme": si["theme"],
                     "image_path": si["path"],
                     "prompt": si["prompt"],
-                    "zoom_start": si["zoom_start"],
-                    "zoom_end": si["zoom_end"],
+                    "zoom_start": 1.0,
+                    "zoom_end": 1.06,
                 }
-                for si in scene_images_with_intro
+                for si in scene_images
             ],
         }
         layout_path = out_dir / f"{args.place.lower()}_layout.json"
@@ -448,6 +471,25 @@ def main():
     motion = MotionVideoAgent(layout_data, out_dir)
     video_path = motion.render()
     print(f"  视频完成: {video_path}")
+
+    # ── 开场 clip 拼接 ─────────────────────────────────────────────
+    _intro_clip_path = out_dir / "intro_clip.mp4"
+    if _intro_clip_path.exists():
+        print("  拼接开场视频到片头...")
+        _concat_txt = out_dir / "video_concat.txt"
+        _concat_txt.write_text(
+            f"file '{_intro_clip_path.as_posix()}'\nfile '{video_path.as_posix()}'\n",
+            encoding="utf-8"
+        )
+        _concat_video = out_dir / "combined_preview.mp4"
+        _sp.run([
+            "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+            "-i", str(_concat_txt),
+            "-c", "copy",
+            str(_concat_video)
+        ], check=True)
+        video_path = _concat_video
+        print(f"  拼接完成: {video_path}")
 
     # ── Agent 5: TTS 配音 + 字幕 (逐场景 3s) ─────────────────────
     print(f"\n[Agent 5] TTS 配音 + 字幕 (逐场景 3s)")
