@@ -179,12 +179,35 @@ def concat_videos(
     }
 
 
+def _find_chinese_font() -> str:
+    """Return an available Chinese font name, or 'sans-serif' as fallback."""
+    import subprocess as _sp
+    try:
+        r = _sp.run(["fc-list", ":lang=zh", "-f", "%{family}\n"], capture_output=True, text=True, timeout=5)
+        if r.returncode == 0:
+            for line in r.stdout.splitlines():
+                name = line.strip().split(",")[0]
+                if name:
+                    return name
+    except Exception:
+        pass
+    # Common fallbacks across platforms
+    for candidate in ["SimHei", "Noto Sans CJK SC", "WenQuanYi Micro Hei", "WenQuanYi Zen Hei", "sans-serif"]:
+        try:
+            r = _sp.run(["fc-match", candidate], capture_output=True, text=True, timeout=3)
+            if r.returncode == 0 and r.stdout and "Not found" not in r.stdout:
+                return candidate
+        except Exception:
+            pass
+    return "sans-serif"
+
+
 def burn_subtitle(
     video_path: str | Path,
     subtitle_path: str | Path,
     output_path: str | Path | None = None,
     *,
-    font_name: str = "SimHei",
+    font_name: str | None = None,
     font_size: int = 24,
     primary_color: str = "&HFFFFFF",
     outline: int = 1,
@@ -199,6 +222,8 @@ def burn_subtitle(
 
     out = _resolve_output(output_path, f"subtitled_{src.name}")
 
+    if font_name is None:
+        font_name = _find_chinese_font()
     style = (
         f"FontName={font_name},"
         f"FontSize={font_size},"
