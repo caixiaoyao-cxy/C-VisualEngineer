@@ -94,49 +94,30 @@ def main():
         _osm_raw = get_osm_contour(args.place, {"output_width": 1024, "output_height": 1024, "zoom": 13})
         if _osm_raw.get("fallback"):
             print(f"  ⚠ 未找到「{args.place}」的地图轮廓。")
-            print("  如有当地地图图片（轮廓图，白底黑轮廓），输入文件路径（直接回车使用默认椭圆）：")
-            _user_map = input("  > ").strip()
-            if _user_map:
-                _p = Path(_user_map)
-                if _p.exists():
-                    _manual_map_path = _p
-                    print(f"  已使用地图: {_p.resolve()}")
-                else:
-                    print(f"  文件不存在，跳过地图")
-            if _manual_map_path is None:
-                _osm_raw = get_osm_contour("", {"output_width": 1024, "output_height": 1024, "zoom": 13})
-
-        # ── 第二步：搜文化元素 ──────────────────────────────────────────
-        if settings.search_api_key:
-            print(f"\n[文化] 搜索「{args.place}」的文化元素...")
+            print("  请提供当地地图图片（轮廓图，白底黑轮廓）。")
             try:
-                raw = search_culture_elements(places, {
-                    "api_key": settings.search_api_key,
-                    "query_template": "{place} 标志性景点 代表性文化 打卡地标 必去",
-                })
-                inv = build_culture_inventory(places, raw)
-                items = inv.get("inventory", [])
-                _place_lower = args.place.lower()
-                _relevant = [i for i in items if _place_lower in str(i.get("place_name", "")).lower() or _place_lower in str(i.get("element_name", "")).lower()]
-                if _relevant:
-                    print(f"  文化元素: {len(_relevant)} 项")
-                    inv_path = out_dir / f"{args.place.lower()}_inventory.json"
-                    inv_path.write_text(
-                        json.dumps({"inventory": _relevant}, ensure_ascii=False, indent=2),
-                        encoding="utf-8",
-                    )
-                    inventory_path = inv_path
-                    _search_ok = True
+                from google.colab import files
+                print("  正在打开文件上传对话框...")
+                _uploaded = files.upload()
+                if _uploaded:
+                    _fname = next(iter(_uploaded))
+                    _p = Path(_fname)
+                    _manual_map_path = _p
+                    print(f"  已上传: {_fname}")
                 else:
-                    print("  搜索到的内容与地名无关")
-            except (SearchConfigurationError, Exception) as e:
-                print(f"  搜索失败 ({e})")
-        else:
-            print("  无 SEARCH_API_KEY, 跳过网络搜索")
-
-        if not _search_ok:
-            print(f"\n  ⚠ 搜索不到「{args.place}」的文化信息，请手动输入当地特色。")
-            print("  请输入景点/食物/活动等，逗号分隔，至少一项：")
+                    raise RuntimeError("未上传文件")
+            except ImportError:
+                _user_map = input("  输入文件路径: ").strip()
+                while not _user_map:
+                    _user_map = input("  路径不能为空: ").strip()
+                _p = Path(_user_map)
+                while not _p.exists():
+                    _user_map = input("  文件不存在，重新输入: ").strip()
+                    _p = Path(_user_map)
+                _manual_map_path = _p
+                print(f"  已使用地图: {_p.resolve()}")
+            # 地图手动提供，直接手动输文化元素
+            print(f"\n[文化] 请输入「{args.place}」的当地特色（景点/食物/活动等，逗号分隔，至少一项）：")
             _manual_input = input("  > ").strip()
             while not _manual_input:
                 print("  至少输入一项特色才能继续：")
@@ -166,6 +147,66 @@ def main():
             inv_path.write_text(json.dumps({"inventory": _manual_items}, ensure_ascii=False, indent=2), encoding="utf-8")
             inventory_path = inv_path
             print(f"  已录入 {len(_manual_items)} 项文化特色")
+        else:
+            _manual_map_path = None
+            # 地图自动命中 → 再搜文化元素
+            if settings.search_api_key:
+                print(f"\n[文化] 搜索「{args.place}」的文化元素...")
+                try:
+                    raw = search_culture_elements(places, {
+                        "api_key": settings.search_api_key,
+                        "query_template": "{place} 标志性景点 代表性文化 打卡地标 必去",
+                    })
+                    inv = build_culture_inventory(places, raw)
+                    items = inv.get("inventory", [])
+                    _place_lower = args.place.lower()
+                    _relevant = [i for i in items if _place_lower in str(i.get("place_name", "")).lower() or _place_lower in str(i.get("element_name", "")).lower()]
+                    if _relevant:
+                        print(f"  文化元素: {len(_relevant)} 项")
+                        inv_path = out_dir / f"{args.place.lower()}_inventory.json"
+                        inv_path.write_text(
+                            json.dumps({"inventory": _relevant}, ensure_ascii=False, indent=2),
+                            encoding="utf-8",
+                        )
+                        inventory_path = inv_path
+                        _search_ok = True
+                    else:
+                        print("  搜索到的内容与地名无关")
+                except (SearchConfigurationError, Exception) as e:
+                    print(f"  搜索失败 ({e})")
+
+            if not _search_ok:
+                print(f"\n  ⚠ 搜索不到「{args.place}」的文化信息，请手动输入当地特色。")
+                print("  请输入景点/食物/活动等，逗号分隔，至少一项：")
+                _manual_input = input("  > ").strip()
+                while not _manual_input:
+                    print("  至少输入一项特色才能继续：")
+                    _manual_input = input("  > ").strip()
+                _features = [f.strip() for f in _manual_input.split(",") if f.strip()]
+                _cat_map = {"塔":"建筑地标","寺":"建筑地标","庙":"建筑地标","楼":"建筑地标","街":"建筑地标","桥":"建筑地标",
+                            "湖":"自然景观","山":"自然景观","河":"自然景观","江":"自然景观","海":"自然景观","岛":"自然景观",
+                            "吃":"饮食","食":"饮食","菜":"饮食","茶":"饮食","酒":"饮食","小吃":"饮食",
+                            "节":"民俗节庆","庆":"民俗节庆","会":"民俗节庆"}
+                def _guess_cat(n):
+                    for kw, cat in _cat_map.items():
+                        if kw in n: return cat
+                    return "建筑地标"
+                _manual_items = []
+                for feat in _features[:4]:
+                    _manual_items.append({
+                        "place_name": args.place,
+                        "element_name": feat,
+                        "category": _guess_cat(feat),
+                        "summary": f"{args.place}的{feat}",
+                        "visual_keywords": [feat],
+                        "usage_suggestions": [f"参观{feat}"],
+                        "confidence": 1.0,
+                        "sources": [],
+                    })
+                inv_path = out_dir / f"{args.place.lower()}_inventory.json"
+                inv_path.write_text(json.dumps({"inventory": _manual_items}, ensure_ascii=False, indent=2), encoding="utf-8")
+                inventory_path = inv_path
+                print(f"  已录入 {len(_manual_items)} 项文化特色")
 
         print("  生成分镜 (4 场景)...")
         sb = generate_storyboard(
