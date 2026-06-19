@@ -388,6 +388,14 @@ def main():
                 draw_intro.text((_px - 6, _py - 10), str(_si), fill=(255, 255, 255), font=None)
                 _label = _elem_name[:10]
                 draw_intro.text((_px + 22, _py - 8), _label, fill=_label_color, font=None)
+            else:
+                # 搜不到坐标 → 在地图外画空心圈
+                _ring_x = 50 + (_si - 1) * 220
+                _ring_y = 980
+                draw_intro.ellipse([_ring_x - 14, _ring_y - 14, _ring_x + 14, _ring_y + 14], fill=None, outline=_marker_color, width=3)
+                draw_intro.text((_ring_x - 6, _ring_y - 10), str(_si), fill=_marker_color, font=None)
+                _label = _elem_name[:10]
+                draw_intro.text((_ring_x - 20, _ring_y + 20), _label, fill=_label_color, font=None)
         # 标题：地名居中
         _title_text = f"探索 {args.place}"
         try:
