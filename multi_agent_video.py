@@ -28,6 +28,7 @@ if str(SRC) not in sys.path:
 from mapgen.config import load_dotenv, get_settings
 load_dotenv()
 
+import math
 import os as _os
 _os.environ.setdefault("SEARCH_PROVIDER", "tavily")
 _os.environ.setdefault("OPENAI_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
