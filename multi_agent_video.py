@@ -103,7 +103,7 @@ def main():
                     print(f"  已上传: {_fname}")
                 else:
                     raise RuntimeError("未上传文件")
-            except ImportError:
+            except (ImportError, Exception):
                 _user_map = input("  输入文件路径: ").strip()
                 while not _user_map:
                     _user_map = input("  路径不能为空: ").strip()
