@@ -303,6 +303,57 @@ def main():
         mask_roomy.save(str(mask_path))
         print(f"  构图完成: {len(scene_images)} 张 + 模糊过渡overlay + mask")
 
+        # -- Intro map scene: geocoded markers --
+        print(f"\n[Intro] 生成开场地图...")
+        _intro_canvas = Image.new("RGBA", (1024, 1024), (*bg_color, 255))
+        _intro_canvas = Image.alpha_composite(_intro_canvas, transition_overlay)
+        _intro_draw = ImageDraw.Draw(_intro_canvas)
+        _place_bounds = {}
+        try:
+            _r = requests.get(f"https://nominatim.openstreetmap.org/search?q={__import__('urllib').parse.quote(args.place)}&format=json&limit=1",
+                              headers={"User-Agent": "Map2Video/0.1"}, timeout=10)
+            if _r.status_code == 200 and _r.json():
+                _d = _r.json()[0]; _bb = _d.get("boundingbox")
+                if _bb and len(_bb) == 4:
+                    _place_bounds = {"min_lat": float(_bb[0]), "max_lat": float(_bb[1]),
+                                     "min_lon": float(_bb[2]), "max_lon": float(_bb[3])}
+        except Exception: pass
+        _mc = (220, 60, 60)
+        for _si, _sc in enumerate(scene_images, start=1):
+            _en = _sc["theme"].replace(f"{args.place}.", "").strip()
+            if not _en: continue
+            _coord = {}
+            try:
+                _er = requests.get(f"https://nominatim.openstreetmap.org/search?q={__import__('urllib').parse.quote(f'{_en} {args.place}')}&format=json&limit=1",
+                                   headers={"User-Agent": "Map2Video/0.1"}, timeout=10)
+                if _er.status_code == 200 and _er.json():
+                    _ed = _er.json()[0]; _coord = {"lat": float(_ed["lat"]), "lon": float(_ed["lon"])}
+            except Exception: pass
+            if _coord and _place_bounds:
+                _blon = _place_bounds["max_lon"] - _place_bounds["min_lon"]
+                _blat = _place_bounds["max_lat"] - _place_bounds["min_lat"]
+                _px = int((_coord["lon"] - _place_bounds["min_lon"]) / _blon * 1024) if _blon else 512
+                _py = int((_place_bounds["max_lat"] - _coord["lat"]) / _blat * 1024) if _blat else 512
+                _px = max(30, min(994, _px)); _py = max(30, min(994, _py))
+                _intro_draw.ellipse([_px-14, _py-14, _px+14, _py+14], fill=_mc, outline=(255,255,255), width=3)
+                _intro_draw.text((_px-6, _py-10), str(_si), fill=(255,255,255))
+                _intro_draw.text((_px+20, _py-8), _en[:10], fill=(50,55,70))
+            else:
+                _rx = 50 + (_si-1) * 220; _ry = 980
+                _intro_draw.ellipse([_rx-14, _ry-14, _rx+14, _ry+14], fill=None, outline=_mc, width=3)
+                _intro_draw.text((_rx-6, _ry-10), str(_si), fill=_mc)
+                _intro_draw.text((_rx-20, _ry+20), _en[:10], fill=(50,55,70))
+        _title = f"探索 {args.place}"
+        try:
+            _f = __import__('PIL').ImageFont.truetype("NotoSansSC-Regular.ttf", 48)
+        except Exception: _f = __import__('PIL').ImageFont.load_default()
+        _tb = _intro_draw.textbbox((0,0), _title, font=_f)
+        _intro_draw.text(((1024-(_tb[2]-_tb[0]))/2, 20), _title, fill=(50,55,70), font=_f)
+        _intro_path = out_dir / f"{args.place.lower()}_intro_map.png"
+        _intro_canvas.convert("RGB").save(str(_intro_path))
+        # Insert as scene 0
+        scene_images.insert(0, {"theme": f"{args.place}全览", "path": str(_intro_path), "prompt": f"{args.place}地图全览, 标注景点位置"})
+
         # -- Layout --
         print(f"\n[Agent 3] 组装场景列表")
         layout_data = {
@@ -318,22 +369,24 @@ def main():
         print(f"  layout: {layout_data['layout_path']}")
 
     # -- Agent 4: Video --
-    print(f"\n[Agent 4] 视频 -> 12s MP4")
+    print(f"\n[Agent 4] 视频 -> {len(layout_data['scenes'])*3}s MP4")
     motion = MotionVideoAgent(layout_data, out_dir)
     video_path = motion.render()
     print(f"  视频: {video_path}")
 
     # -- Agent 5: TTS + Subtitles --
     print(f"\n[Agent 5] TTS 配音 + 字幕")
-    narration_list = [s.get("narration", "") for s in scenes]
+    narration_list = [f"今天我们去{args.place}，探索这里的文化印记。"] + [s.get("narration", "") for s in scenes]
     _seen_narr = set()
     for i, n in enumerate(narration_list):
-        if not n.strip() or n in _seen_narr: narration_list[i] = f"这是{scenes[i]['title']}。"
+        if not n.strip() or n in _seen_narr: narration_list[i] = f"这是{'开场地图' if i==0 else scenes[i-1]['title']}。"
         _seen_narr.add(narration_list[i])
     if any(narration_list):
         per_scene_sec = 3.0; wave_parts = []
         for i, text in enumerate(narration_list):
-            if not text.strip(): text = f"{scenes[i]['title']}。"
+            if not text.strip():
+                _scene_idx = i - 1  # narration[0] is intro, scenes[0..3] map to narration[1..4]
+                text = f"这是{'开场地图' if i==0 else scenes[_scene_idx]['title']}。"
             raw_mp3 = out_dir / f"scene_tts_{i+1:02d}.mp3"
             print(f"  [TTS] 场景 {i+1}: {text[:30]}...")
             synthesize_dubbing(text, raw_mp3, audio_format="mp3", voice="longxiaochun", model="cosyvoice-v1", provider="dashscope")
@@ -351,7 +404,9 @@ def main():
         srt_path = out_dir / "dubbing.srt"
         srt_lines = []
         for i, text in enumerate(narration_list):
-            if not text.strip(): text = f"{scenes[i]['title']}。"
+            if not text.strip():
+                _scene_idx = i - 1
+                text = f"这是{'开场地图' if i==0 else scenes[_scene_idx]['title']}。"
             start = i * per_scene_sec; end = (i + 1) * per_scene_sec
             def _fmt(t): h=int(t//3600); m=int(t%3600//60); s=t%60; return f"{h:02d}:{m:02d}:{s:06.3f}"
             srt_lines.extend([str(i+1), f"{_fmt(start)} --> {_fmt(end)}", text, ""])
