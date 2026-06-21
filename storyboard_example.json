@@ -1,0 +1,52 @@
+[
+  {
+    "scene_id": 1,
+    "description": "西湖断桥，雪后初晴，湖面薄雾，行人撑伞走过桥面",
+    "action": "人物从桥头缓步走向桥尾，雪花飘落",
+    "narration": "断桥残雪是西湖十景之一，每到冬日雪后，桥面雪景如诗如画。",
+    "style": "二次元, 手绘风, 冬日童话",
+    "contour_map": "input/contours/hangzhou_map.png",
+    "seed": 42,
+    "variants": 1
+  },
+  {
+    "scene_id": 2,
+    "description": "龙井茶园，层层梯田，采茶女挎竹篮采摘嫩芽",
+    "action": "采茶女弯腰采茶，手指轻掐茶尖",
+    "narration": "西湖龙井名列中国十大名茶之首，清明前采摘的明前茶最为珍贵。",
+    "style": "二次元, 手绘风, 清新田园",
+    "contour_map": "input/contours/hangzhou_map.png",
+    "seed": 142,
+    "variants": 1
+  },
+  {
+    "scene_id": 3,
+    "description": "雷峰塔夕照，金色夕阳洒在塔身，湖面金光粼粼",
+    "action": "无人机视角环绕雷峰塔飞行",
+    "narration": "雷峰塔建于北宋，因白蛇传的传说而闻名于世。",
+    "style": "二次元, 手绘风, 金色黄昏",
+    "contour_map": "input/contours/hangzhou_map.png",
+    "seed": 242,
+    "variants": 1
+  },
+  {
+    "scene_id": 4,
+    "description": "河坊街夜市，灯笼高挂，人群熙攘，小吃摊冒着热气",
+    "action": "镜头从街头推进到一家糖画摊前",
+    "narration": "河坊街是杭州最古老的传统街区，至今保留着南宋市井风情。",
+    "style": "二次元, 手绘风, 温暖夜市",
+    "contour_map": "input/contours/hangzhou_map.png",
+    "seed": 342,
+    "variants": 1
+  },
+  {
+    "scene_id": 5,
+    "description": "西湖全景，三潭印月，苏堤春晓，柳枝轻拂水面",
+    "action": "镜头缓缓拉起，俯瞰西湖全景",
+    "narration": "杭州西湖，人间天堂，千年风华，等你来寻。",
+    "style": "二次元, 手绘风, 全景史诗",
+    "contour_map": "input/contours/hangzhou_map.png",
+    "seed": 442,
+    "variants": 1
+  }
+]
